@@ -1,0 +1,8 @@
+[package]
+name = "codegen"
+version = "0.1.0"
+authors = ["Joe Wilm <joe@jwilm.com>"]
+
+[dependencies]
+syntex = "0.43.0"
+syntex_syntax = "0.43.0"
