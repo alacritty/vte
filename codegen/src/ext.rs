@@ -39,6 +39,29 @@ fn state_from_str<S>(s: &S) -> Result<State, ()>
     })
 }
 
+fn action_from_str<S>(s: &S) -> Result<Action, ()>
+    where S: AsRef<str>
+{
+    Ok(match s.as_ref() {
+        "Action::None" => Action::None,
+        "Action::Clear" => Action::Clear,
+        "Action::Collect" => Action::Collect,
+        "Action::CsiDispatch" => Action::CsiDispatch,
+        "Action::EscDispatch" => Action::EscDispatch,
+        "Action::Execute" => Action::Execute,
+        "Action::Hook" => Action::Hook,
+        "Action::Ignore" => Action::Ignore,
+        "Action::OscEnd" => Action::OscEnd,
+        "Action::OscPut" => Action::OscPut,
+        "Action::OscStart" => Action::OscStart,
+        "Action::Param" => Action::Param,
+        "Action::Print" => Action::Print,
+        "Action::Put" => Action::Put,
+        "Action::Unhook" => Action::Unhook,
+        _ => return Err(())
+    })
+}
+
 fn parse_table_input_mappings<'a>(parser: &mut Parser<'a>) -> PResult<'a, Vec<Arm>> {
     // Must start on open brace
     try!(parser.expect(&Token::OpenDelim(DelimToken::Brace)));
@@ -118,6 +141,7 @@ fn input_mapping_from_arm(arm: Arm, cx: &mut ExtCtxt) -> Result<InputMapping, ()
 }
 
 /// What happens when certain input is received
+#[derive(Debug)]
 enum Transition {
     State(State),
     Action(Action),
@@ -126,10 +150,66 @@ enum Transition {
 
 impl Transition {
     fn from_expr(expr: &Expr, cx: &mut ExtCtxt) -> Result<Transition, ()> {
-        unimplemented!();
+        match expr.node {
+            ExprKind::Tup(ref tup_exprs) => {
+                let mut action = None;
+                let mut state = None;
+
+                for tup_expr in tup_exprs {
+                    if let ExprKind::Path(_, ref path) = tup_expr.node {
+                        let path_str = path.to_string();
+                        if path_str.starts_with('A') {
+                            action = Some(try!(action_from_str(&path_str)
+                                               .map_err(|_| {
+                                                   cx.span_err(expr.span, "invalid action");
+                                               })));
+                        } else {
+                            state = Some(try!(state_from_str(&path_str)
+                                               .map_err(|_| {
+                                                   cx.span_err(expr.span, "invalid state");
+                                               })));
+                        }
+                    }
+                }
+
+                match (action, state) {
+                    (Some(action), Some(state)) => Ok(Transition::StateAction(state, action)),
+                    (None, Some(state)) => Ok(Transition::State(state)),
+                    (Some(action), None) => Ok(Transition::Action(action)),
+                    _ => {
+                        cx.span_err(expr.span, "expected Action and/or State");
+                        Err(())
+                    }
+                }
+            },
+            ExprKind::Path(_, ref path) => {
+                // Path can be Action or State
+                let path_str = path.to_string();
+
+                if path_str.starts_with('A') {
+                    let action = try!(action_from_str(&path_str)
+                                     .map_err(|_| {
+                                         cx.span_err(expr.span, "invalid action");
+                                     }));
+                    Ok(Transition::Action(action))
+                } else {
+                    let state = try!(state_from_str(&path_str)
+                                     .map_err(|_| {
+                                         cx.span_err(expr.span, "invalid state");
+                                     }));
+
+                    Ok(Transition::State(state))
+                }
+            },
+            _ => {
+                cx.span_err(expr.span, "expected Action and/or State");
+                Err(())
+            }
+        }
     }
 }
 
+#[derive(Debug)]
 enum InputDefinition {
     Specific(u8),
     Range { start: u8, end: u8 }
@@ -155,11 +235,13 @@ impl InputDefinition {
     }
 }
 
+#[derive(Debug)]
 struct InputMapping {
     input: InputDefinition,
     transition: Transition,
 }
 
+#[derive(Debug)]
 struct TableDefinition {
     state: State,
     mappings: Vec<InputMapping>,
@@ -237,6 +319,8 @@ fn expand_state_table<'cx>(
         Ok(definitions) => definitions,
         Err(_) => return DummyResult::any(sp),
     };
+
+    println!("definitions: {:?}", definitions);
 
     panic!("End of current implementation, go write some more :)");
 }
