@@ -10,7 +10,7 @@ impl State {
     #[inline(always)]
     pub fn exit_action(&self) -> Action {
         unsafe {
-            ::table::EXIT_ACTIONS.get_unchecked(*self as usize)
+            *::table::EXIT_ACTIONS.get_unchecked(*self as usize)
         }
     }
 
@@ -18,7 +18,7 @@ impl State {
     #[inline(always)]
     pub fn entry_action(&self) -> Action {
         unsafe {
-            ::table::ENTRY_ACTIONS.get_unchecked(*self as usize)
+            *::table::ENTRY_ACTIONS.get_unchecked(*self as usize)
         }
     }
 }

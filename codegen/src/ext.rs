@@ -1,6 +1,6 @@
 use syntex::Registry;
 
-use syntex_syntax::ast::{ExprKind, MetaItem, Arm, Expr, PatKind, LitKind, Pat};
+use syntex_syntax::ast::{self, ExprKind, MetaItem, Arm, Expr, PatKind, LitKind, Pat};
 use syntex_syntax::codemap::Span;
 use syntex_syntax::ext::base::{Annotatable, ExtCtxt, MacEager, MacResult, DummyResult};
 use syntex_syntax::ext::build::AstBuilder;
@@ -149,6 +149,19 @@ enum Transition {
 }
 
 impl Transition {
+    // State is stored in the top 4 bits
+    fn pack_u8(&self) -> u8 {
+        match *self {
+            Transition::State(ref state) => (*state as u8) << 4,
+            Transition::Action(ref action) => *action as u8,
+            Transition::StateAction(ref state, ref action) => {
+                ((*state as u8) << 4) & (*action as u8)
+            }
+        }
+    }
+}
+
+impl Transition {
     fn from_expr(expr: &Expr, cx: &mut ExtCtxt) -> Result<Transition, ()> {
         match expr.node {
             ExprKind::Tup(ref tup_exprs) => {
@@ -294,6 +307,48 @@ fn parse_table_definition_list<'a>(parser: &mut Parser<'a>)
     Ok(definitions)
 }
 
+fn build_state_tables<T>(defs: T) -> [[u8; 256]; 16]
+    where T: AsRef<[TableDefinition]>
+{
+    let mut result = [[0u8; 256]; 16];
+
+    for def in defs.as_ref() {
+        let state = def.state;
+        let state = state as u8;
+        let transitions = &mut result[state as usize];
+
+        for mapping in &def.mappings {
+            let trans = mapping.transition.pack_u8();
+            match mapping.input {
+                InputDefinition::Specific(idx) => {
+                    transitions[idx as usize] = trans;
+                },
+                InputDefinition::Range { start, end } => {
+                    for idx in start..end {
+                        transitions[idx as usize] = trans;
+                    }
+                    transitions[end as usize] = trans;
+                },
+            }
+        }
+    }
+
+    result
+}
+
+fn build_table_ast(cx: &mut ExtCtxt, sp: Span, table: [[u8; 256]; 16]) -> P<ast::Expr> {
+    let table = table.iter()
+        .map(|list| {
+            let exprs = list.iter()
+                .map(|num| cx.expr_u8(sp, *num))
+                .collect();
+            cx.expr_vec(sp, exprs)
+        })
+        .collect();
+
+    cx.expr_vec(sp, table)
+}
+
 fn expand_state_table<'cx>(
     cx: &'cx mut ExtCtxt,
     sp: Span,
@@ -320,7 +375,8 @@ fn expand_state_table<'cx>(
         Err(_) => return DummyResult::any(sp),
     };
 
-    println!("definitions: {:?}", definitions);
+    let table = build_state_tables(&definitions);
+    let ast = build_table_ast(cx, sp, table);
 
-    panic!("End of current implementation, go write some more :)");
+    MacEager::expr(ast)
 }

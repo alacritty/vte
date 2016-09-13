@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum State {
    Anywhere = 0,
    CsiEntry = 1,
@@ -18,7 +18,7 @@ pub enum State {
    Unused__ = 15,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Action {
    None = 0,
    Clear = 1,
@@ -46,7 +46,7 @@ pub enum Action {
 ///
 /// Bad things will happen if those invariants are violated.
 #[inline(always)]
-fn unpack(delta: u8) -> (State, Action) {
+pub fn unpack(delta: u8) -> (State, Action) {
     (
         // Action is stored in bottom 4 bits
         unsafe { ::std::mem::transmute(delta & 0x0f) },
