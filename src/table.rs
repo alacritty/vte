@@ -1,7 +1,7 @@
 
 /// This is the state change table. It's indexed first by current state and then by the next
 /// character in the pty stream.
-use definitions::{State, Action};
+use definitions::Action;
 
 pub static STATE_CHANGE: [[u8; 256]; 16] =
     [
