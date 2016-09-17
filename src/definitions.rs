@@ -66,6 +66,11 @@ mod tests {
             _ => panic!("unpack failed"),
         }
 
+        match unpack(0x0f) {
+            (State::Unused__, Action::None) => (),
+            _ => panic!("unpack failed"),
+        }
+
         match unpack(0xff) {
             (State::Unused__, Action::Unused__) => (),
             _ => panic!("unpack failed"),
