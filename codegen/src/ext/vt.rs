@@ -1,3 +1,4 @@
+//! Macro expansion for the virtual terminal parser state table
 use std::fmt;
 
 use syntex::Registry;
@@ -12,10 +13,13 @@ use syntex_syntax::parse::PResult;
 use syntex_syntax::ptr::P;
 use syntex_syntax::tokenstream::TokenTree;
 
-use definitions::{State, Action};
+#[path="../../../src/definitions.rs"]
+mod definitions;
+
+use self::definitions::{State, Action};
 
 pub fn register(registry: &mut Registry) {
-    registry.add_macro("state_table", expand_state_table);
+    registry.add_macro("vt_state_table", expand_state_table);
 }
 
 fn state_from_str<S>(s: &S) -> Result<State, ()>
@@ -37,6 +41,7 @@ fn state_from_str<S>(s: &S) -> Result<State, ()>
         "State::Ground" => State::Ground,
         "State::OscString" => State::OscString,
         "State::SosPmApcString" => State::SosPmApcString,
+        "State::Utf8" => State::Utf8,
         _ => return Err(())
     })
 }
@@ -60,6 +65,7 @@ fn action_from_str<S>(s: &S) -> Result<Action, ()>
         "Action::Print" => Action::Print,
         "Action::Put" => Action::Put,
         "Action::Unhook" => Action::Unhook,
+        "Action::BeginUtf8" => Action::BeginUtf8,
         _ => return Err(())
     })
 }

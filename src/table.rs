@@ -6,6 +6,9 @@ use definitions::Action;
 pub static STATE_CHANGE: [[u8; 256]; 16] =
     [
 
+     // Beginning of UTF-8 2 byte sequence
+     // Beginning of UTF-8 3 byte sequence
+     // Beginning of UTF-8 4 byte sequence
 
 
 
@@ -280,11 +283,13 @@ pub static STATE_CHANGE: [[u8; 256]; 16] =
       80u8, 80u8, 80u8, 80u8, 80u8, 80u8, 0u8, 80u8, 0u8, 0u8, 0u8, 0u8, 0u8,
       0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
       0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
-      0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
-      0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
-      0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
-      0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
-      0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8],
+      0u8, 0u8, 0u8, 0u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8,
+      255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8,
+      255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8,
+      255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8,
+      255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8,
+      255u8, 255u8, 255u8, 255u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+      0u8, 0u8],
      [112u8, 112u8, 112u8, 112u8, 112u8, 112u8, 112u8, 112u8, 112u8, 112u8,
       112u8, 112u8, 112u8, 112u8, 112u8, 112u8, 112u8, 112u8, 112u8, 112u8,
       112u8, 112u8, 112u8, 112u8, 0u8, 112u8, 0u8, 0u8, 112u8, 112u8, 112u8,
@@ -366,7 +371,7 @@ pub static ENTRY_ACTIONS: &'static [Action] =
       Action::OscStart, // State::OscString
       Action::None, // State::SosPmApcString
       Action::None];
- // State::Unused__
+ // State::Utf8
 
 pub static EXIT_ACTIONS: &'static [Action] =
     &[Action::None, // State::Anywhere
@@ -384,4 +389,4 @@ pub static EXIT_ACTIONS: &'static [Action] =
       Action::None, // State::Ground
       Action::OscEnd, // State::OscString
       Action::None, // State::SosPmApcString
-      Action::None]; // State::Unused__
+      Action::None]; // State::Utf8

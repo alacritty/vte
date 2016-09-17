@@ -1,5 +1,6 @@
 mod table;
 mod definitions;
+mod utf8;
 
 pub use definitions::{Action, State, unpack};
 
@@ -27,6 +28,20 @@ impl State {
 const MAX_INTERMEDIATES: usize = 2;
 const MAX_PARAMS: usize = 16;
 
+struct VtUtf8Receiver<'a, P: Parser + 'a>(&'a mut P, &'a mut State);
+
+impl<'a, P: Parser> utf8::Receiver for VtUtf8Receiver<'a, P> {
+    fn codepoint(&mut self, c: char) {
+        self.0.print(c);
+        *self.1 = State::Ground;
+    }
+
+    fn invalid_sequence(&mut self) {
+        self.0.print('�');
+        *self.1 = State::Ground;
+    }
+}
+
 /// ANSI VTE Parser
 ///
 /// As described in http://vt100.net/emu/dec_ansi_parser
@@ -38,7 +53,8 @@ pub struct StateMachine {
     intermediate_idx: usize,
     params: [i64; MAX_PARAMS],
     num_params: usize,
-    ignoring: bool
+    ignoring: bool,
+    utf8_parser: utf8::Parser,
 }
 
 impl StateMachine {
@@ -50,6 +66,7 @@ impl StateMachine {
             params: [0i64; MAX_PARAMS],
             num_params: 0,
             ignoring: false,
+            utf8_parser: utf8::Parser::new(),
         }
     }
 
@@ -62,6 +79,12 @@ impl StateMachine {
     }
 
     pub fn advance<P: Parser>(&mut self, parser: &mut P, byte: u8) {
+        // Utf8 characters are handled out-of-band.
+        if let State::Utf8 = self.state {
+            self.process_utf8(parser, byte);
+            return;
+        }
+
         // Handle state changes in the anywhere state before evaluating changes
         // for current state.
         let mut change = STATE_CHANGE[State::Anywhere as usize][byte as usize];
@@ -76,13 +99,22 @@ impl StateMachine {
         self.perform_state_change(parser, state, action, byte);
     }
 
+    #[inline]
+    fn process_utf8<P>(&mut self, parser: &mut P, byte: u8)
+        where P: Parser
+    {
+        let mut receiver = VtUtf8Receiver(parser, &mut self.state);
+        let utf8_parser = &mut self.utf8_parser;
+        utf8_parser.advance(&mut receiver, byte);
+    }
+
     fn perform_state_change<P>(&mut self, parser: &mut P, state: State, action: Action, byte: u8)
         where P: Parser
     {
         macro_rules! maybe_action {
             ($action:expr, $arg:expr) => {
                 match $action {
-                    Action::None | Action::Unused__ => (),
+                    Action::None => (),
                     action => {
                         self.perform_action(parser, action, $arg);
                     },
@@ -91,7 +123,7 @@ impl StateMachine {
         }
 
         match state {
-            State::Anywhere | State::Unused__ => {
+            State::Anywhere => {
                 // Just run the action
                 self.perform_action(parser, action, byte);
             },
@@ -114,7 +146,7 @@ impl StateMachine {
 
     fn perform_action<P: Parser>(&mut self, parser: &mut P, action: Action, byte: u8) {
         match action {
-            Action::Print => parser.print(self, byte as char),
+            Action::Print => parser.print(byte as char),
             Action::Execute => parser.execute(self, byte),
             Action::Hook => parser.hook(self, byte),
             Action::Put => parser.put(self, byte),
@@ -124,7 +156,7 @@ impl StateMachine {
             Action::Unhook => parser.unhook(self, byte),
             Action::CsiDispatch => parser.csi_dispatch(self, byte as char),
             Action::EscDispatch => parser.esc_dispatch(self, byte),
-            Action::Ignore | Action::None | Action::Unused__=> (),
+            Action::Ignore | Action::None => (),
             Action::Collect => {
                 if self.intermediate_idx == MAX_INTERMEDIATES {
                     self.ignoring = true;
@@ -155,13 +187,16 @@ impl StateMachine {
                 self.intermediate_idx = 0;
                 self.num_params = 0;
                 self.ignoring = false;
-            }
+            },
+            Action::BeginUtf8 => {
+                self.process_utf8(parser, byte);
+            },
         }
     }
 }
 
 pub trait Parser {
-    fn print(&mut self, &StateMachine, c: char);
+    fn print(&mut self, c: char);
     fn execute(&mut self, &StateMachine, byte: u8);
     fn hook(&mut self, &StateMachine, byte: u8);
     fn put(&mut self, &StateMachine, byte: u8);

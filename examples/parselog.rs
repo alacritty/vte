@@ -9,7 +9,7 @@ use vtparse::{StateMachine, Parser};
 struct Log;
 
 impl Parser for Log {
-    fn print(&mut self, _machine: &StateMachine, c: char) {
+    fn print(&mut self, c: char) {
         println!("[print] {:?}", c);
     }
     fn execute(&mut self, _machine: &StateMachine, byte: u8) {

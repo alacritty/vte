@@ -3,7 +3,7 @@
 
 use definitions::Action;
 
-pub static STATE_CHANGE: [[u8; 256]; 16] = state_table! {
+pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
     State::Anywhere => {
         0x18        => (Action::Execute, State::Ground),
         0x1a        => (Action::Execute, State::Ground),
@@ -28,7 +28,13 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = state_table! {
         0x20...0x7f => Action::Print,
         0x80...0x8f => Action::Execute,
         0x91...0x9a => Action::Execute,
-        0x9c        => Action::Execute
+        0x9c        => Action::Execute,
+        // Beginning of UTF-8 2 byte sequence
+        0xc2...0xdf => (State::Utf8, Action::BeginUtf8),
+        // Beginning of UTF-8 3 byte sequence
+        0xe0...0xef => (State::Utf8, Action::BeginUtf8),
+        // Beginning of UTF-8 4 byte sequence
+        0xf0...0xf4 => (State::Utf8, Action::BeginUtf8),
     },
 
     State::Escape => {
@@ -191,7 +197,7 @@ pub static ENTRY_ACTIONS: &'static [Action] = &[
    Action::None,     // State::Ground
    Action::OscStart, // State::OscString
    Action::None,     // State::SosPmApcString
-   Action::None,     // State::Unused__
+   Action::None,     // State::Utf8
 ];
 
 pub static EXIT_ACTIONS: &'static [Action] = &[
@@ -210,5 +216,5 @@ pub static EXIT_ACTIONS: &'static [Action] = &[
    Action::None,   // State::Ground
    Action::OscEnd, // State::OscString
    Action::None,   // State::SosPmApcString
-   Action::None,   // State::Unused__
+   Action::None,   // State::Utf8
 ];

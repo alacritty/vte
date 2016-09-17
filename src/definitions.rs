@@ -15,7 +15,7 @@ pub enum State {
    Ground = 12,
    OscString = 13,
    SosPmApcString = 14,
-   Unused__ = 15,
+   Utf8 = 15,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -35,7 +35,7 @@ pub enum Action {
    Print = 12,
    Put = 13,
    Unhook = 14,
-   Unused__ = 15,
+   BeginUtf8 = 15,
 }
 
 /// Unpack a u8 into a State and Action
@@ -67,12 +67,12 @@ mod tests {
         }
 
         match unpack(0x0f) {
-            (State::Unused__, Action::None) => (),
+            (State::Utf8, Action::None) => (),
             _ => panic!("unpack failed"),
         }
 
         match unpack(0xff) {
-            (State::Unused__, Action::Unused__) => (),
+            (State::Utf8, Action::BeginUtf8) => (),
             _ => panic!("unpack failed"),
         }
     }
