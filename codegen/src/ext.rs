@@ -2,11 +2,11 @@ use std::fmt;
 
 use syntex::Registry;
 
-use syntex_syntax::ast::{self, ExprKind, MetaItem, Arm, Expr, PatKind, LitKind, Pat};
+use syntex_syntax::ast::{self, ExprKind, Arm, Expr, PatKind, LitKind, Pat};
 use syntex_syntax::codemap::Span;
-use syntex_syntax::ext::base::{Annotatable, ExtCtxt, MacEager, MacResult, DummyResult};
+use syntex_syntax::ext::base::{ExtCtxt, MacEager, MacResult, DummyResult};
 use syntex_syntax::ext::build::AstBuilder;
-use syntex_syntax::parse::token::{Token, InternedString, DelimToken};
+use syntex_syntax::parse::token::{Token, DelimToken};
 use syntex_syntax::parse::parser::Parser;
 use syntex_syntax::parse::PResult;
 use syntex_syntax::ptr::P;
@@ -72,7 +72,7 @@ fn parse_table_input_mappings<'a>(parser: &mut Parser<'a>) -> PResult<'a, Vec<Ar
     while parser.token != Token::CloseDelim(DelimToken::Brace) {
         match parser.parse_arm() {
             Ok(arm) => arms.push(arm),
-            Err(mut e) => {
+            Err(e) => {
                 // Recover by skipping to the end of the block.
                 return Err(e);
             }

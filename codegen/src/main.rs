@@ -14,5 +14,5 @@ fn main() {
 
     let mut registry = syntex::Registry::new();
     ext::register(&mut registry);
-    registry.expand("state_table", src, dst);
+    registry.expand("state_table", src, dst).expect("expand stable_table ok");
 }
