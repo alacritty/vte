@@ -396,3 +396,15 @@ fn expand_state_table<'cx>(
 
     MacEager::expr(ast)
 }
+
+#[cfg(test)]
+mod tests {
+    use definitions::{State, Action};
+    use super::Transition;
+
+    #[test]
+    fn pack_u8() {
+        let transition = Transition::StateAction(State::CsiParam, Action::Collect);
+        assert_eq!(transition.pack_u8(), 0x24);
+    }
+}
