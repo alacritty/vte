@@ -45,8 +45,6 @@ impl<'a, P: Parser> utf8::Receiver for VtUtf8Receiver<'a, P> {
 /// ANSI VTE Parser
 ///
 /// As described in http://vt100.net/emu/dec_ansi_parser
-///
-/// TODO: utf8 support
 pub struct StateMachine {
     state: State,
     intermediates: [u8; MAX_INTERMEDIATES],
