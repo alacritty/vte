@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub enum State {
    Anywhere = 0,
@@ -18,6 +19,7 @@ pub enum State {
    Utf8 = 15,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
    None = 0,

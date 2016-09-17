@@ -1,5 +1,5 @@
 [package]
-name = "vtparse"
+name = "vte"
 version = "0.1.0"
 authors = ["Joe Wilm <joe@jwilm.com>"]
 
