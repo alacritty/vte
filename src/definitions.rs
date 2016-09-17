@@ -48,10 +48,10 @@ pub enum Action {
 #[inline(always)]
 pub fn unpack(delta: u8) -> (State, Action) {
     (
-        // Action is stored in bottom 4 bits
+        // State is stored in bottom 4 bits
         unsafe { ::std::mem::transmute(delta & 0x0f) },
 
-        // State is stored in top 4 bits
+        // Action is stored in top 4 bits
         unsafe { ::std::mem::transmute(delta >> 4) },
     )
 }
