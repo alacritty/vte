@@ -24,16 +24,48 @@ impl State {
 }
 
 
-pub struct StateMachine<P: Parser> {
+const MAX_INTERMEDIATES: usize = 2;
+const MAX_PARAMS: usize = 16;
+
+/// ANSI VTE Parser
+///
+/// As described in http://vt100.net/emu/dec_ansi_parser
+///
+/// TODO: utf8 support
+pub struct StateMachine {
     state: State,
-    parser: P,
+    intermediates: [u8; MAX_INTERMEDIATES],
+    intermediate_idx: usize,
+    params: [i64; MAX_PARAMS],
+    num_params: usize,
+    ignoring: bool
 }
 
-impl<P: Parser> StateMachine<P> {
-    pub fn advance(&mut self, byte: u8) {
+impl StateMachine {
+    pub fn new() -> StateMachine {
+        StateMachine {
+            state: State::Ground,
+            intermediates: [0u8; MAX_INTERMEDIATES],
+            intermediate_idx: 0,
+            params: [0i64; MAX_PARAMS],
+            num_params: 0,
+            ignoring: false,
+        }
+    }
+
+    pub fn params(&self) -> &[i64] {
+        &self.params[..self.num_params]
+    }
+
+    pub fn intermediates(&self) -> &[u8] {
+        &self.intermediates[..self.intermediate_idx]
+    }
+
+    pub fn advance<P: Parser>(&mut self, parser: &mut P, byte: u8) {
         // Handle state changes in the anywhere state before evaluating changes
         // for current state.
         let mut change = STATE_CHANGE[State::Anywhere as usize][byte as usize];
+
         if change == 0 {
             change = STATE_CHANGE[self.state as usize][byte as usize];
         }
@@ -41,16 +73,18 @@ impl<P: Parser> StateMachine<P> {
         // Unpack into a state and action
         let (state, action) = unpack(change);
 
-        self.perform_state_change(state, action, byte);
+        self.perform_state_change(parser, state, action, byte);
     }
 
-    fn perform_state_change(&mut self, state: State, action: Action, byte: u8) {
+    fn perform_state_change<P>(&mut self, parser: &mut P, state: State, action: Action, byte: u8)
+        where P: Parser
+    {
         macro_rules! maybe_action {
             ($action:expr, $arg:expr) => {
                 match $action {
                     Action::None | Action::Unused__ => (),
                     action => {
-                        self.perform_action(action, $arg);
+                        self.perform_action(parser, action, $arg);
                     },
                 }
             }
@@ -59,7 +93,7 @@ impl<P: Parser> StateMachine<P> {
         match state {
             State::Anywhere | State::Unused__ => {
                 // Just run the action
-                self.perform_action(action, byte);
+                self.perform_action(parser, action, byte);
             },
             state => {
                 // Exit action for previous state
@@ -78,55 +112,63 @@ impl<P: Parser> StateMachine<P> {
         }
     }
 
-    /// XXX I don't think this handles UTF-8 properly. Hmm...
-    fn perform_action(&mut self, action: Action, byte: u8) {
-        unimplemented!();
-
+    fn perform_action<P: Parser>(&mut self, parser: &mut P, action: Action, byte: u8) {
         match action {
-            Action::Execute => self.parser.execute(byte),
-            Action::Hook => self.parser.hook(byte),
-            Action::Put => self.parser.put(byte),
-            Action::OscStart => self.parser.osc_start(byte),
-            Action::OscPut => self.parser.osc_put(byte),
-            Action::OscEnd => self.parser.osc_end(byte),
-            Action::Unhook => self.parser.unhook(byte),
-            Action::CsiDispatch => self.parser.csi_dispatch(byte),
-            Action::EscDispatch => self.parser.esc_dispatch(byte),
+            Action::Print => parser.print(self, byte as char),
+            Action::Execute => parser.execute(self, byte),
+            Action::Hook => parser.hook(self, byte),
+            Action::Put => parser.put(self, byte),
+            Action::OscStart => parser.osc_start(self, byte),
+            Action::OscPut => parser.osc_put(self, byte),
+            Action::OscEnd => parser.osc_end(self, byte),
+            Action::Unhook => parser.unhook(self, byte),
+            Action::CsiDispatch => parser.csi_dispatch(self, byte as char),
+            Action::EscDispatch => parser.esc_dispatch(self, byte),
             Action::Ignore | Action::None | Action::Unused__=> (),
             Action::Collect => {
-                unimplemented!();
+                if self.intermediate_idx == MAX_INTERMEDIATES {
+                    self.ignoring = true;
+                } else {
+                    self.intermediates[self.intermediate_idx] = byte;
+                    self.intermediate_idx += 1;
+                }
             },
             Action::Param => {
-                unimplemented!();
+                // if byte == ';'
+                if byte == 0x3b {
+                    // end of param; advance to next
+                    self.num_params += 1;
+                    let idx = self.num_params - 1; // borrowck
+                    self.params[idx] = 0;
+                } else {
+                    if self.num_params == 0 {
+                        self.num_params = 1;
+                        self.params[0] = 0;
+                    }
+
+                    let idx = self.num_params - 1;
+                    self.params[idx] *= 10;
+                    self.params[idx] += (byte - ('0' as u8)) as i64;
+                }
             },
             Action::Clear => {
-                unimplemented!();
+                self.intermediate_idx = 0;
+                self.num_params = 0;
+                self.ignoring = false;
             }
         }
     }
 }
 
 pub trait Parser {
-    fn csi_entry(&mut self, byte: u8);
-    fn csi_param(&mut self, byte: u8);
+    fn print(&mut self, &StateMachine, c: char);
+    fn execute(&mut self, &StateMachine, byte: u8);
+    fn hook(&mut self, &StateMachine, byte: u8);
+    fn put(&mut self, &StateMachine, byte: u8);
+    fn osc_start(&mut self, &StateMachine, byte: u8);
+    fn osc_put(&mut self, &StateMachine, byte: u8);
+    fn osc_end(&mut self, &StateMachine, byte: u8);
+    fn unhook(&mut self, &StateMachine, byte: u8);
+    fn csi_dispatch(&mut self, &StateMachine, c: char);
+    fn esc_dispatch(&mut self, &StateMachine, byte: u8);
 }
-
-// 
-// struct Foo;
-// 
-// impl Parser for Foo {
-//     fn csi_entry(&mut self, c: char) {
-//         println!("csi_entry char={:?}", c);
-//     }
-//     fn csi_param(&mut self, c: char) {
-//         println!("csi_param char={:?}", c);
-//     }
-// }
-// 
-// #[test]
-// fn it_works() {
-//     let table: u8 = &[Parser::csi_entry, Parser::csi_param];
-//     let mut foo = Foo;
-//     table[0](&mut foo, 'b');
-// }
-
