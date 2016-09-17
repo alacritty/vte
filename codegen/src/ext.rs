@@ -1,3 +1,5 @@
+use std::fmt;
+
 use syntex::Registry;
 
 use syntex_syntax::ast::{self, ExprKind, MetaItem, Arm, Expr, PatKind, LitKind, Pat};
@@ -141,21 +143,35 @@ fn input_mapping_from_arm(arm: Arm, cx: &mut ExtCtxt) -> Result<InputMapping, ()
 }
 
 /// What happens when certain input is received
-#[derive(Debug)]
+#[derive(Copy, Clone)]
 enum Transition {
     State(State),
     Action(Action),
     StateAction(State, Action),
 }
 
+impl fmt::Debug for Transition {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Transition::State(state) => try!(write!(f, "State({:?})", state)),
+            Transition::Action(action) => try!(write!(f, "Action({:?})", action)),
+            Transition::StateAction(state, action) => {
+                try!(write!(f, "StateAction({:?}, {:?})", state, action));
+            }
+        }
+
+        write!(f, " -> {:?}", self.pack_u8())
+    }
+}
+
 impl Transition {
     // State is stored in the top 4 bits
     fn pack_u8(&self) -> u8 {
         match *self {
-            Transition::State(ref state) => (*state as u8) << 4,
-            Transition::Action(ref action) => *action as u8,
-            Transition::StateAction(ref state, ref action) => {
-                ((*state as u8) << 4) & (*action as u8)
+            Transition::State(state) => state as u8,
+            Transition::Action(action) => (action as u8) << 4,
+            Transition::StateAction(state, action) => {
+                ((action as u8) << 4) | (state as u8)
             }
         }
     }
