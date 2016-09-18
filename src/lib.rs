@@ -23,9 +23,10 @@
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: http://vt100.net/emu/dec_ansi_parser
+extern crate utf8parse as utf8;
+
 mod table;
 mod definitions;
-mod utf8;
 
 use definitions::{Action, State, unpack};
 

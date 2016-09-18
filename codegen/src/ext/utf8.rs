@@ -13,7 +13,7 @@ use syntex_syntax::parse::PResult;
 use syntex_syntax::ptr::P;
 use syntex_syntax::tokenstream::TokenTree;
 
-#[path="../../../src/utf8/types.rs"]
+#[path="../../../utf8parse/src/types.rs"]
 mod types;
 
 use self::types::{State, Action, pack};

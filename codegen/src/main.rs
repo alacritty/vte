@@ -17,7 +17,7 @@ fn main() {
     // Expand UTF8 parser state table
     let mut registry = syntex::Registry::new();
     ext::utf8::register(&mut registry);
-    let src = &Path::new("../src/utf8/table.rs.in");
-    let dst = &Path::new("../src/utf8/table.rs");
+    let src = &Path::new("../utf8parse/src/table.rs.in");
+    let dst = &Path::new("../utf8parse/src/table.rs");
     registry.expand("utf8_state_table", src, dst).expect("expand utf8_stable_table ok");
 }

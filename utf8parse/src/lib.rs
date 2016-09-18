@@ -13,12 +13,10 @@ use self::table::TRANSITIONS;
 
 /// Handles codepoint and invalid sequence events from the parser.
 pub trait Receiver {
-    /// Code point parsed
-    ///
-    /// Called with the codepoint
+    /// Called whenever a codepoint is parsed successfully
     fn codepoint(&mut self, char);
 
-    /// Invalid sequence encountered
+    /// Called when an invalid_sequence is detected
     fn invalid_sequence(&mut self);
 }
 
@@ -42,6 +40,10 @@ impl Parser {
         }
     }
 
+    /// Advance the parser
+    ///
+    /// The provider receiver will be called whenever a codepoint is completed or an invalid
+    /// sequence is detected.
     pub fn advance<R>(&mut self, receiver: &mut R, byte: u8)
         where R: Receiver
     {

@@ -1,7 +1,6 @@
 [package]
-name = "vte"
+name = "utf8parse"
 version = "0.1.0"
 authors = ["Joe Wilm <joe@jwilm.com>"]
 
-[dependencies.utf8parse]
-path = "./utf8parse"
+[dependencies]
