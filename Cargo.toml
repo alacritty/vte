@@ -10,3 +10,4 @@ documentation = "https://docs.rs/vte/"
 
 [dependencies.utf8parse]
 path = "./utf8parse"
+version = "0.1"
