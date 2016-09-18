@@ -217,8 +217,7 @@ impl Parser {
                 }
             },
             Action::Param => {
-                // if byte == ';'
-                if byte == 0x3b {
+                if byte == b';' {
                     // end of param; advance to next
                     self.num_params += 1;
                     let idx = self.num_params - 1; // borrowck
@@ -231,7 +230,7 @@ impl Parser {
 
                     let idx = self.num_params - 1;
                     self.params[idx] *= 10;
-                    self.params[idx] += (byte - ('0' as u8)) as i64;
+                    self.params[idx] += (byte - b'0') as i64;
                 }
             },
             Action::Clear => {
