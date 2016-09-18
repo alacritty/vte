@@ -1,5 +1,5 @@
 //! Parse input from stdin and log actions on stdout
-extern crate vtparse;
+extern crate vte;
 
 use std::io::{self, Read};
 
