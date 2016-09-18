@@ -95,10 +95,12 @@ impl Parser {
         }
     }
 
+    #[inline]
     fn params(&self) -> &[i64] {
         &self.params[..self.num_params]
     }
 
+    #[inline]
     fn intermediates(&self) -> &[u8] {
         &self.intermediates[..self.intermediate_idx]
     }
@@ -108,6 +110,7 @@ impl Parser {
     /// Requires a [`Perform`] in case `byte` triggers an action
     ///
     /// [`Perform`]: trait.Perform.html
+    #[inline]
     pub fn advance<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         // Utf8 characters are handled out-of-band.
         if let State::Utf8 = self.state {
@@ -138,6 +141,7 @@ impl Parser {
         utf8_parser.advance(&mut receiver, byte);
     }
 
+    #[inline]
     fn perform_state_change<P>(&mut self, performer: &mut P, state: State, action: Action, byte: u8)
         where P: Perform
     {
@@ -174,6 +178,7 @@ impl Parser {
         }
     }
 
+    #[inline]
     fn perform_action<P: Perform>(&mut self, performer: &mut P, action: Action, byte: u8) {
         match action {
             Action::Print => performer.print(byte as char),
