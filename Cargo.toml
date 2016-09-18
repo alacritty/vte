@@ -2,6 +2,11 @@
 name = "vte"
 version = "0.1.0"
 authors = ["Joe Wilm <joe@jwilm.com>"]
+license = "Apache-2.0 OR MIT"
+description = "Parser for implementing terminal emulators"
+keywords = ["ansi", "vte", "parser", "terminal"]
+repository = "https://github.com/jwilm/vte"
+documentation = "https://docs.rs/vte/"
 
 [dependencies.utf8parse]
 path = "./utf8parse"
