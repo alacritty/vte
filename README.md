@@ -1,6 +1,8 @@
 vte
 ===
 
+[![Crates.io Version](https://img.shields.io/crates/v/vte.svg)](https://crates.io/crates/vte/)
+
 Parser for implementing virtual terminal emulators in Rust.
 
 The parser is implemented according to [Paul Williams' ANSI parser state
