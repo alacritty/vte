@@ -20,6 +20,11 @@
 //!
 //! Just type `:q` to exit.
 //!
+//! # Differences from original state machine description
+//!
+//! * UTF-8 Support for Input
+//! * OSC Strings can be terminated by 0x07
+//!
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: http://vt100.net/emu/dec_ansi_parser

@@ -173,7 +173,9 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
     },
 
     State::OscString => {
-        0x00...0x17 => Action::Ignore,
+        0x00...0x06 => Action::Ignore,
+        0x07        => State::Ground,
+        0x08...0x17 => Action::Ignore,
         0x19        => Action::Ignore,
         0x1c...0x1f => Action::Ignore,
         0x20...0x7f => Action::OscPut,
