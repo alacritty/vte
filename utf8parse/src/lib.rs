@@ -91,3 +91,42 @@ impl Parser {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Read;
+    use std::fs::File;
+    use Receiver;
+    use Parser;
+
+    impl Receiver for String {
+        fn codepoint(&mut self, c: char) {
+            self.push(c);
+        }
+
+        fn invalid_sequence(&mut self) {
+        }
+    }
+
+    #[test]
+    fn utf8parse_test() {
+        let mut buffer = String::new();
+        let mut file = File::open("src/UTF-8-demo.txt").unwrap();
+        let mut parser = Parser::new();
+
+        // read the file to a buffer
+        file.read_to_string(&mut buffer).expect("Reading file to string");
+
+        // standard library implementation
+        let expected = String::from_utf8(buffer.as_bytes().to_vec()).unwrap();
+
+        // utf8parse implementation
+        let mut actual = String::new();
+
+        for byte in buffer.as_bytes().to_vec() {
+            parser.advance(&mut actual, byte)
+        }
+
+        assert_eq!(actual, expected);
+    }
+}
