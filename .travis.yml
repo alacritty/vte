@@ -1,0 +1,10 @@
+language: rust
+
+cache: cargo
+
+rust:
+  - stable
+  - nightly
+
+script:
+  - cd utf8parse && cargo test
