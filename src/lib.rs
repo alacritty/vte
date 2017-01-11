@@ -263,11 +263,22 @@ impl Parser {
             Action::OscEnd => {
                 let param_idx = self.osc_num_params;
                 let idx = self.osc_idx;
-                // Finish last parameter if not already maxed
-                if param_idx != MAX_PARAMS {
-                    let prev = self.osc_params[param_idx - 1];
-                    let begin = prev.1;
-                    self.osc_params[param_idx] = (begin, idx);
+
+                match param_idx {
+                    // Finish last parameter if not already maxed
+                    MAX_PARAMS => (),
+
+                    // First param is special - 0 to current byte index
+                    0 => {
+                        self.osc_params[param_idx] = (0, idx);
+                    },
+
+                    // All other params depend on previous indexing
+                    _ => {
+                        let prev = self.osc_params[param_idx - 1];
+                        let begin = prev.1;
+                        self.osc_params[param_idx] = (begin, idx);
+                    }
                 }
                 self.osc_num_params += 1;
 
@@ -393,31 +404,30 @@ mod tests {
         0x07 // End OSC
     ];
 
+    #[derive(Default)]
+    struct OscDispatcher {
+        dispatched_osc: bool,
+        params: Vec<Vec<u8>>,
+    }
+
+    // All empty bodies except osc_dispatch
+    impl Perform for OscDispatcher {
+        fn print(&mut self, _: char) {}
+        fn execute(&mut self, _byte: u8) {}
+        fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool) {}
+        fn put(&mut self, _byte: u8) {}
+        fn unhook(&mut self) {}
+        fn osc_dispatch(&mut self, params: &[&[u8]]) {
+            // Set a flag so we know these assertions all run
+            self.dispatched_osc = true;
+            self.params = params.iter().map(|p| p.to_vec()).collect();
+        }
+        fn csi_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {}
+        fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+    }
+
     #[test]
     fn parse_osc() {
-        #[derive(Default)]
-        struct OscDispatcher {
-            dispatched_osc: bool
-        }
-
-        // All empty bodies except osc_dispatch
-        impl Perform for OscDispatcher {
-            fn print(&mut self, _: char) {}
-            fn execute(&mut self, _byte: u8) {}
-            fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool) {}
-            fn put(&mut self, _byte: u8) {}
-            fn unhook(&mut self) {}
-            fn osc_dispatch(&mut self, params: &[&[u8]]) {
-                // Set a flag so we know these assertions all run
-                self.dispatched_osc = true;
-                assert_eq!(params.len(), 2);
-                assert_eq!(params[0], &OSC_BYTES[1..2]);
-                assert_eq!(params[1], &OSC_BYTES[3..(OSC_BYTES.len() - 1)]);
-            }
-            fn csi_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {}
-            fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
-        }
-
         // Create dispatcher and check state
         let mut dispatcher = OscDispatcher::default();
         assert_eq!(dispatcher.dispatched_osc, false);
@@ -425,6 +435,25 @@ mod tests {
         // Run parser using OSC_BYTES
         let mut parser = Parser::new();
         for byte in OSC_BYTES {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Check that flag is set and thus osc_dispatch assertions ran.
+        assert!(dispatcher.dispatched_osc);
+        assert_eq!(dispatcher.params.len(), 2);
+        assert_eq!(dispatcher.params[0], &OSC_BYTES[1..2]);
+        assert_eq!(dispatcher.params[1], &OSC_BYTES[3..(OSC_BYTES.len() - 1)]);
+    }
+
+    #[test]
+    fn parse_empty_osc() {
+        // Create dispatcher and check state
+        let mut dispatcher = OscDispatcher::default();
+        assert_eq!(dispatcher.dispatched_osc, false);
+
+        // Run parser using OSC_BYTES
+        let mut parser = Parser::new();
+        for byte in &[0x9d, 0x07] {
             parser.advance(&mut dispatcher, *byte);
         }
 
