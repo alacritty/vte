@@ -15,29 +15,21 @@ impl vte::Perform for Log {
         println!("[execute] {:02x}", byte);
     }
 
-    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8) {
-        println!("[hook] params={:?}, intermediates={:?}, ignore={:?}, byte={:02x}",
-                 params, intermediates, ignore, byte);
+    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool) {
+        println!("[hook] params={:?}, intermediates={:?}, ignore={:?}",
+                 params, intermediates, ignore);
     }
 
     fn put(&mut self, byte: u8) {
         println!("[put] {:02x}", byte);
     }
 
-    fn unhook(&mut self, byte: u8) {
-        println!("[unhook] {:02x}", byte);
+    fn unhook(&mut self) {
+        println!("[unhook]");
     }
 
-    fn osc_start(&mut self) {
-        println!("[osc_start]");
-    }
-
-    fn osc_put(&mut self, byte: u8) {
-        println!("[osc_put] {:02x}", byte);
-    }
-
-    fn osc_end(&mut self, byte: u8) {
-        println!("[osc_end] {:02x}", byte);
+    fn osc_dispatch(&mut self, params: &[&[u8]]) {
+        println!("[csi_dispatch] params={:?}", params);
     }
 
     fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {

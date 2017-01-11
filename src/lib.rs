@@ -30,6 +30,8 @@
 //! [Paul Williams' ANSI parser state machine]: http://vt100.net/emu/dec_ansi_parser
 extern crate utf8parse as utf8;
 
+use std::mem;
+
 mod table;
 mod definitions;
 
@@ -57,6 +59,7 @@ impl State {
 
 
 const MAX_INTERMEDIATES: usize = 2;
+const MAX_OSC_RAW: usize = 1024;
 const MAX_PARAMS: usize = 16;
 
 struct VtUtf8Receiver<'a, P: Perform + 'a>(&'a mut P, &'a mut State);
@@ -82,6 +85,10 @@ pub struct Parser {
     intermediate_idx: usize,
     params: [i64; MAX_PARAMS],
     num_params: usize,
+    osc_raw: [u8; MAX_OSC_RAW],
+    osc_params: [(usize, usize); MAX_PARAMS],
+    osc_idx: usize,
+    osc_num_params: usize,
     ignoring: bool,
     utf8_parser: utf8::Parser,
 }
@@ -95,6 +102,10 @@ impl Parser {
             intermediate_idx: 0,
             params: [0i64; MAX_PARAMS],
             num_params: 0,
+            osc_raw: [0; MAX_OSC_RAW],
+            osc_params: [(0, 0); MAX_PARAMS],
+            osc_idx: 0,
+            osc_num_params: 0,
             ignoring: false,
             utf8_parser: utf8::Parser::new(),
         }
@@ -183,6 +194,23 @@ impl Parser {
         }
     }
 
+    /// Separate method for osc_dispatch that borrows self as read-only
+    ///
+    /// The aliasing is needed here for multiple slices into self.osc_raw
+    #[inline]
+    fn osc_dispatch<P: Perform>(&self, performer: &mut P) {
+        let mut slices: [&[u8]; MAX_PARAMS] = unsafe { mem::uninitialized() };
+
+        for i in 0..self.osc_num_params {
+            let indices = self.osc_params[i];
+            slices[i] = &self.osc_raw[indices.0..indices.1];
+        }
+
+        performer.osc_dispatch(
+            &slices[..self.osc_num_params],
+        );
+    }
+
     #[inline]
     fn perform_action<P: Perform>(&mut self, performer: &mut P, action: Action, byte: u8) {
         match action {
@@ -193,14 +221,59 @@ impl Parser {
                     self.params(),
                     self.intermediates(),
                     self.ignoring,
-                    byte
                 );
             },
             Action::Put => performer.put(byte),
-            Action::OscStart => performer.osc_start(),
-            Action::OscPut => performer.osc_put(byte),
-            Action::OscEnd => performer.osc_end(byte),
-            Action::Unhook => performer.unhook(byte),
+            Action::OscStart => {
+                self.osc_idx = 0;
+                self.osc_num_params = 0;
+            },
+            Action::OscPut => {
+                let idx = self.osc_idx;
+                if idx == self.osc_raw.len() {
+                    return;
+                }
+
+                // Param separator
+                if byte == b';' {
+                    let param_idx = self.osc_num_params;
+                    match param_idx {
+                        // Only process up to MAX_PARAMS
+                        MAX_PARAMS => return,
+
+                        // First param is special - 0 to current byte index
+                        0 => {
+                            self.osc_params[param_idx] = (0, idx);
+                        },
+
+                        // All other params depend on previous indexing
+                        _ => {
+                            let prev = self.osc_params[param_idx - 1];
+                            let begin = prev.1;
+                            self.osc_params[param_idx] = (begin, idx);
+                        }
+                    }
+
+                    self.osc_num_params += 1;
+                } else {
+                    self.osc_raw[idx] = byte;
+                    self.osc_idx += 1;
+                }
+            },
+            Action::OscEnd => {
+                let param_idx = self.osc_num_params;
+                let idx = self.osc_idx;
+                // Finish last parameter if not already maxed
+                if param_idx != MAX_PARAMS {
+                    let prev = self.osc_params[param_idx - 1];
+                    let begin = prev.1;
+                    self.osc_params[param_idx] = (begin, idx);
+                }
+                self.osc_num_params += 1;
+
+                self.osc_dispatch(performer);
+            },
+            Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
                 performer.csi_dispatch(
                     self.params(),
@@ -281,7 +354,7 @@ pub trait Perform {
     ///
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
-    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8);
+    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool);
 
     /// Pass bytes as part of a device control string to the handle chosen in `hook`. C0 controls
     /// will also be passed to the handler.
@@ -291,18 +364,10 @@ pub trait Perform {
     ///
     /// The previously selected handler should be notified that the DCS has
     /// terminated.
-    fn unhook(&mut self, byte: u8);
+    fn unhook(&mut self);
 
-    /// Notifies the start of an Operating System Command
-    fn osc_start(&mut self);
-
-    /// Receives characters for the OSC control string
-    ///
-    /// Apparently characters don't need buffering here.
-    fn osc_put(&mut self, byte: u8);
-
-    /// Called when the OSC has terminated
-    fn osc_end(&mut self, byte: u8);
+    /// Dispatch an operating system command
+    fn osc_dispatch(&mut self, params: &[&[u8]]);
 
     /// A final character has arrived for a CSI sequence
     ///
@@ -315,4 +380,55 @@ pub trait Perform {
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
     fn esc_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Parser, Perform};
+
+    static OSC_BYTES: &'static [u8] = &[0x9d, // Begin OSC
+        b'2', b';', b'j', b'w', b'i', b'l', b'm', b'@', b'j', b'w', b'i', b'l',
+        b'm', b'-', b'd', b'e', b's', b'k', b':', b' ', b'~', b'/', b'c', b'o',
+        b'd', b'e', b'/', b'a', b'l', b'a', b'c', b'r', b'i', b't', b't', b'y',
+        0x07 // End OSC
+    ];
+
+    #[test]
+    fn parse_osc() {
+        #[derive(Default)]
+        struct OscDispatcher {
+            dispatched_osc: bool
+        }
+
+        // All empty bodies except osc_dispatch
+        impl Perform for OscDispatcher {
+            fn print(&mut self, _: char) {}
+            fn execute(&mut self, _byte: u8) {}
+            fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool) {}
+            fn put(&mut self, _byte: u8) {}
+            fn unhook(&mut self) {}
+            fn osc_dispatch(&mut self, params: &[&[u8]]) {
+                // Set a flag so we know these assertions all run
+                self.dispatched_osc = true;
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0], &OSC_BYTES[1..2]);
+                assert_eq!(params[1], &OSC_BYTES[3..(OSC_BYTES.len() - 1)]);
+            }
+            fn csi_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {}
+            fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+        }
+
+        // Create dispatcher and check state
+        let mut dispatcher = OscDispatcher::default();
+        assert_eq!(dispatcher.dispatched_osc, false);
+
+        // Run parser using OSC_BYTES
+        let mut parser = Parser::new();
+        for byte in OSC_BYTES {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Check that flag is set and thus osc_dispatch assertions ran.
+        assert!(dispatcher.dispatched_osc);
+    }
 }
