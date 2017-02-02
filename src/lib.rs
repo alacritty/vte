@@ -84,6 +84,8 @@ pub struct Parser {
     intermediates: [u8; MAX_INTERMEDIATES],
     intermediate_idx: usize,
     params: [i64; MAX_PARAMS],
+    param: i64,
+    collecting_param: bool,
     num_params: usize,
     osc_raw: [u8; MAX_OSC_RAW],
     osc_params: [(usize, usize); MAX_PARAMS],
@@ -101,6 +103,8 @@ impl Parser {
             intermediates: [0u8; MAX_INTERMEDIATES],
             intermediate_idx: 0,
             params: [0i64; MAX_PARAMS],
+            param: 0,
+            collecting_param: false,
             num_params: 0,
             osc_raw: [0; MAX_OSC_RAW],
             osc_params: [(0, 0); MAX_PARAMS],
@@ -286,12 +290,21 @@ impl Parser {
             },
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
+                if self.collecting_param {
+                    let idx = self.num_params;
+                    self.params[idx] = self.param;
+                    self.num_params += 1;
+                }
                 performer.csi_dispatch(
                     self.params(),
                     self.intermediates(),
                     self.ignoring,
                     byte as char
                 );
+
+                self.num_params = 0;
+                self.param = 0;
+                self.collecting_param = false;
             }
             Action::EscDispatch => {
                 performer.esc_dispatch(
@@ -312,19 +325,17 @@ impl Parser {
             },
             Action::Param => {
                 if byte == b';' {
-                    // end of param; advance to next
+                    // Completed a param
+                    let idx = self.num_params;
+                    self.params[idx] = self.param;
+                    self.param = 0;
                     self.num_params += 1;
-                    let idx = self.num_params - 1; // borrowck
-                    self.params[idx] = 0;
+                    self.collecting_param = false;
                 } else {
-                    if self.num_params == 0 {
-                        self.num_params = 1;
-                        self.params[0] = 0;
-                    }
-
-                    let idx = self.num_params - 1;
-                    self.params[idx] *= 10;
-                    self.params[idx] += (byte - b'0') as i64;
+                    // Continue collecting bytes into param
+                    self.param *= 10;
+                    self.param += (byte - b'0') as i64;
+                    self.collecting_param = true;
                 }
             },
             Action::Clear => {
@@ -459,5 +470,37 @@ mod tests {
 
         // Check that flag is set and thus osc_dispatch assertions ran.
         assert!(dispatcher.dispatched_osc);
+    }
+
+    #[test]
+    fn parse_semi_set_underline() {
+        struct CsiDispatcher {
+            params: Vec<Vec<i64>>,
+        }
+
+        impl Perform for CsiDispatcher {
+            fn print(&mut self, _: char) {}
+            fn execute(&mut self, _byte: u8) {}
+            fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool) {}
+            fn put(&mut self, _byte: u8) {}
+            fn unhook(&mut self) {}
+            fn osc_dispatch(&mut self, _params: &[&[u8]]) { }
+            fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {
+                self.params.push(params.to_vec());
+            }
+            fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+        }
+
+        // Create dispatcher and check state
+        let mut dispatcher = CsiDispatcher { params: vec![] };
+
+        // Run parser using OSC_BYTES
+        let mut parser = Parser::new();
+        for byte in b"\x1b[;4m" {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Check that flag is set and thus osc_dispatch assertions ran.
+        assert_eq!(dispatcher.params[0], &[0, 4]);
     }
 }
