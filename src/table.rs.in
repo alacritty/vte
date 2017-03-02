@@ -7,18 +7,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
     State::Anywhere => {
         0x18        => (Action::Execute, State::Ground),
         0x1a        => (Action::Execute, State::Ground),
-        0x80...0x8f => (Action::Execute, State::Ground),
-        0x91...0x97 => (Action::Execute, State::Ground),
-        0x99        => (Action::Execute, State::Ground),
-        0x9a        => (Action::Execute, State::Ground),
-        0x9c        => (Action::Execute, State::Ground),
         0x1b        => State::Escape,
-        0x98        => State::SosPmApcString,
-        0x9e        => State::SosPmApcString,
-        0x9f        => State::SosPmApcString,
-        0x90        => State::DcsEntry,
-        0x9d        => State::OscString,
-        0x9b        => State::CsiEntry,
     },
 
     State::Ground => {
@@ -178,8 +167,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x08...0x17 => Action::Ignore,
         0x19        => Action::Ignore,
         0x1c...0x1f => Action::Ignore,
-        0x20...0x7f => Action::OscPut,
-        0x9c        => State::Ground,
+        0x20...0xff => Action::OscPut,
     }
 };
 

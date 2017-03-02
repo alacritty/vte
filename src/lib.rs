@@ -24,6 +24,8 @@
 //!
 //! * UTF-8 Support for Input
 //! * OSC Strings can be terminated by 0x07
+//! * Only supports 7-bit codes. Some 8-bit codes are still supported, but they
+//!   no longer work in all states.
 //!
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
@@ -408,7 +410,7 @@ pub trait Perform {
 mod tests {
     use super::{Parser, Perform};
 
-    static OSC_BYTES: &'static [u8] = &[0x9d, // Begin OSC
+    static OSC_BYTES: &'static [u8] = &[0x1b, 0x5d, // Begin OSC
         b'2', b';', b'j', b'w', b'i', b'l', b'm', b'@', b'j', b'w', b'i', b'l',
         b'm', b'-', b'd', b'e', b's', b'k', b':', b' ', b'~', b'/', b'c', b'o',
         b'd', b'e', b'/', b'a', b'l', b'a', b'c', b'r', b'i', b't', b't', b'y',
@@ -452,8 +454,8 @@ mod tests {
         // Check that flag is set and thus osc_dispatch assertions ran.
         assert!(dispatcher.dispatched_osc);
         assert_eq!(dispatcher.params.len(), 2);
-        assert_eq!(dispatcher.params[0], &OSC_BYTES[1..2]);
-        assert_eq!(dispatcher.params[1], &OSC_BYTES[3..(OSC_BYTES.len() - 1)]);
+        assert_eq!(dispatcher.params[0], &OSC_BYTES[2..3]);
+        assert_eq!(dispatcher.params[1], &OSC_BYTES[4..(OSC_BYTES.len() - 1)]);
     }
 
     #[test]
@@ -464,7 +466,7 @@ mod tests {
 
         // Run parser using OSC_BYTES
         let mut parser = Parser::new();
-        for byte in &[0x9d, 0x07] {
+        for byte in &[0x1b, 0x5d, 0x07] {
             parser.advance(&mut dispatcher, *byte);
         }
 
@@ -502,5 +504,28 @@ mod tests {
 
         // Check that flag is set and thus osc_dispatch assertions ran.
         assert_eq!(dispatcher.params[0], &[0, 4]);
+    }
+
+    #[test]
+    fn parse_osc_with_utf8_arguments() {
+        static INPUT: &'static [u8] = &[
+            0x0d, 0x1b, 0x5d, 0x32, 0x3b, 0x65, 0x63, 0x68, 0x6f, 0x20, 0x27,
+            0xc2, 0xaf, 0x5c, 0x5f, 0x28, 0xe3, 0x83, 0x84, 0x29, 0x5f, 0x2f,
+            0xc2, 0xaf, 0x27, 0x20, 0x26, 0x26, 0x20, 0x73, 0x6c, 0x65, 0x65,
+            0x70, 0x20, 0x31, 0x07
+        ];
+
+        // Create dispatcher and check state
+        let mut dispatcher = OscDispatcher { params: vec![], dispatched_osc: false };
+
+        // Run parser using OSC_BYTES
+        let mut parser = Parser::new();
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Check that flag is set and thus osc_dispatch assertions ran.
+        assert_eq!(dispatcher.params[0], &[b'2']);
+        assert_eq!(dispatcher.params[1], &INPUT[5..(INPUT.len() - 1)]);
     }
 }
