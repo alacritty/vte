@@ -277,6 +277,7 @@ impl Parser {
                     // First param is special - 0 to current byte index
                     0 => {
                         self.osc_params[param_idx] = (0, idx);
+                        self.osc_num_params += 1;
                     },
 
                     // All other params depend on previous indexing
@@ -284,10 +285,9 @@ impl Parser {
                         let prev = self.osc_params[param_idx - 1];
                         let begin = prev.1;
                         self.osc_params[param_idx] = (begin, idx);
+                        self.osc_num_params += 1;
                     }
                 }
-                self.osc_num_params += 1;
-
                 self.osc_dispatch(performer);
             },
             Action::Unhook => performer.unhook(),
@@ -472,6 +472,31 @@ mod tests {
 
         // Check that flag is set and thus osc_dispatch assertions ran.
         assert!(dispatcher.dispatched_osc);
+    }
+
+    #[test]
+    fn parse_osc_max_params() {
+        use MAX_PARAMS;
+
+        static INPUT: &'static [u8] = b"\x1b];;;;;;;;;;;;;;;;\x1b";
+
+        // Create dispatcher and check state
+        let mut dispatcher = OscDispatcher::default();
+        assert_eq!(dispatcher.dispatched_osc, false);
+
+        // Run parser using OSC_BYTES
+        let mut parser = Parser::new();
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Check that flag is set and thus osc_dispatch assertions ran.
+        assert!(dispatcher.dispatched_osc);
+        assert_eq!(dispatcher.params.len(), MAX_PARAMS);
+        for param in dispatcher.params.iter() {
+            assert_eq!(param.len(), 0);
+        }
+
     }
 
     #[test]
