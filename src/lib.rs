@@ -335,8 +335,8 @@ impl Parser {
                     self.collecting_param = false;
                 } else {
                     // Continue collecting bytes into param
-                    self.param *= 10;
-                    self.param += (byte - b'0') as i64;
+                    self.param = self.param.saturating_mul(10);
+                    self.param = self.param.saturating_add((byte - b'0') as i64);
                     self.collecting_param = true;
                 }
             },
@@ -409,6 +409,7 @@ pub trait Perform {
 #[cfg(test)]
 mod tests {
     use super::{Parser, Perform};
+    use std::i64;
 
     static OSC_BYTES: &'static [u8] = &[0x1b, 0x5d, // Begin OSC
         b'2', b';', b'j', b'w', b'i', b'l', b'm', b'@', b'j', b'w', b'i', b'l',
@@ -438,6 +439,25 @@ mod tests {
         fn csi_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {}
         fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
     }
+
+    #[derive(Default)]
+    struct CsiDispatcher {
+        params: Vec<Vec<i64>>,
+    }
+
+    impl Perform for CsiDispatcher {
+        fn print(&mut self, _: char) {}
+        fn execute(&mut self, _byte: u8) {}
+        fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool) {}
+        fn put(&mut self, _byte: u8) {}
+        fn unhook(&mut self) {}
+        fn osc_dispatch(&mut self, _params: &[&[u8]]) { }
+        fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {
+            self.params.push(params.to_vec());
+        }
+        fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+    }
+
 
     #[test]
     fn parse_osc() {
@@ -501,22 +521,6 @@ mod tests {
 
     #[test]
     fn parse_semi_set_underline() {
-        struct CsiDispatcher {
-            params: Vec<Vec<i64>>,
-        }
-
-        impl Perform for CsiDispatcher {
-            fn print(&mut self, _: char) {}
-            fn execute(&mut self, _byte: u8) {}
-            fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool) {}
-            fn put(&mut self, _byte: u8) {}
-            fn unhook(&mut self) {}
-            fn osc_dispatch(&mut self, _params: &[&[u8]]) { }
-            fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {
-                self.params.push(params.to_vec());
-            }
-            fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
-        }
 
         // Create dispatcher and check state
         let mut dispatcher = CsiDispatcher { params: vec![] };
@@ -531,6 +535,21 @@ mod tests {
         assert_eq!(dispatcher.params[0], &[0, 4]);
     }
 
+    #[test]
+    fn parse_long_csi_param() {
+        // The important part is the parameter, which is (i64::MAX + 1)
+        static INPUT: &'static [u8] = b"\x1b[9223372036854775808m";
+
+        let mut dispatcher = CsiDispatcher { params: vec![] };
+
+        let mut parser = Parser::new();
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.params[0], &[i64::MAX as i64]);
+
+    }
     #[test]
     fn parse_osc_with_utf8_arguments() {
         static INPUT: &'static [u8] = &[
