@@ -329,6 +329,11 @@ impl Parser {
                 if byte == b';' {
                     // Completed a param
                     let idx = self.num_params;
+
+                    if idx == MAX_PARAMS {
+                        return;
+                    }
+
                     self.params[idx] = self.param;
                     self.param = 0;
                     self.num_params += 1;
@@ -442,6 +447,7 @@ mod tests {
 
     #[derive(Default)]
     struct CsiDispatcher {
+        dispatched_csi: bool,
         params: Vec<Vec<i64>>,
     }
 
@@ -453,6 +459,7 @@ mod tests {
         fn unhook(&mut self) {}
         fn osc_dispatch(&mut self, _params: &[&[u8]]) { }
         fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {
+            self.dispatched_csi = true;
             self.params.push(params.to_vec());
         }
         fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
@@ -498,7 +505,7 @@ mod tests {
     fn parse_osc_max_params() {
         use MAX_PARAMS;
 
-        static INPUT: &'static [u8] = b"\x1b];;;;;;;;;;;;;;;;\x1b";
+        static INPUT: &'static [u8] = b"\x1b];;;;;;;;;;;;;;;;;\x1b";
 
         // Create dispatcher and check state
         let mut dispatcher = OscDispatcher::default();
@@ -520,10 +527,34 @@ mod tests {
     }
 
     #[test]
+    fn parse_csi_max_params() {
+        use MAX_PARAMS;
+
+        static INPUT: &'static [u8] = b"\x1b[;;;;;;;;;;;;;;;;;p";
+
+        // Create dispatcher and check state
+        let mut dispatcher = CsiDispatcher::default();
+        assert!(!dispatcher.dispatched_csi);
+
+
+        // Run parser using OSC_BYTES
+        let mut parser = Parser::new();
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Check that flag is set and thus csi_dispatch assertions ran.
+        assert!(dispatcher.dispatched_csi);
+        assert_eq!(dispatcher.params.len(), 1);
+        assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
+
+    }
+
+    #[test]
     fn parse_semi_set_underline() {
 
         // Create dispatcher and check state
-        let mut dispatcher = CsiDispatcher { params: vec![] };
+        let mut dispatcher = CsiDispatcher::default();
 
         // Run parser using OSC_BYTES
         let mut parser = Parser::new();
@@ -540,7 +571,7 @@ mod tests {
         // The important part is the parameter, which is (i64::MAX + 1)
         static INPUT: &'static [u8] = b"\x1b[9223372036854775808m";
 
-        let mut dispatcher = CsiDispatcher { params: vec![] };
+        let mut dispatcher = CsiDispatcher::default();
 
         let mut parser = Parser::new();
         for byte in INPUT {
