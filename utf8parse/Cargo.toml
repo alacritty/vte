@@ -8,4 +8,10 @@ keywords = ["utf8", "parse", "table"]
 repository = "https://github.com/jwilm/vte"
 documentation = "https://docs.rs/utf8parse/"
 
+[features]
+nightly = []
+default = []
+
 [dependencies]
+
+

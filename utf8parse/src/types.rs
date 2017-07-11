@@ -66,6 +66,7 @@ pub fn pack(state: State, action: Action) -> u8 {
 /// function in this module, there is no guarantee that a valid state and action
 /// can be produced.
 #[inline]
+#[allow(dead_code)]
 pub unsafe fn unpack(val: u8) -> (State, Action) {
     (
         // State is stored in bottom 4 bits
