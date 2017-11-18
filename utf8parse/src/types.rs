@@ -1,6 +1,6 @@
 //! Types supporting the UTF-8 parser
 #![allow(non_camel_case_types)]
-use std::mem;
+use core::mem;
 
 /// States the parser can be in.
 ///

@@ -30,9 +30,11 @@
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: http://vt100.net/emu/dec_ansi_parser
+#![no_std]
+
 extern crate utf8parse as utf8;
 
-use std::mem;
+use core::mem;
 
 mod table;
 mod definitions;
@@ -414,7 +416,7 @@ pub trait Perform {
 #[cfg(test)]
 mod tests {
     use super::{Parser, Perform};
-    use std::i64;
+    use core::i64;
 
     static OSC_BYTES: &'static [u8] = &[0x1b, 0x5d, // Begin OSC
         b'2', b';', b'j', b'w', b'i', b'l', b'm', b'@', b'j', b'w', b'i', b'l',

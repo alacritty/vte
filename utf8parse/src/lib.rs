@@ -3,7 +3,9 @@
 //! This module implements a table-driven UTF-8 parser which should
 //! theoretically contain the minimal number of branches (1). The only branch is
 //! on the `Action` returned from unpacking a transition.
-use std::char;
+#![no_std]
+
+use core::char;
 
 mod types;
 use self::types::{State, Action, unpack};
@@ -94,6 +96,8 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
     use std::io::Read;
     use std::fs::File;
     use Receiver;
