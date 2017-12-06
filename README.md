@@ -21,5 +21,5 @@ If contributing to either `vte` or the `utf8parse` crate and modifying a
 _table.rs.in_ file, make sure to `cargo run` from the _codegen_ folder so that
 the compiled tables are updated.
 
-[Paul Williams' ANSI parser state machine]: http://vt100.net/emu/dec_ansi_parser
+[Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
 [docs]: https://docs.rs/crate/vte/
