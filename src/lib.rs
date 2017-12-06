@@ -29,7 +29,7 @@
 //!
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
-//! [Paul Williams' ANSI parser state machine]: http://vt100.net/emu/dec_ansi_parser
+//! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
 #![no_std]
 
 extern crate utf8parse as utf8;
