@@ -414,7 +414,12 @@ pub trait Perform {
 }
 
 #[cfg(test)]
+#[macro_use]
+extern crate std;
+
+#[cfg(test)]
 mod tests {
+    use std::vec::Vec;
     use super::{Parser, Perform};
     use core::i64;
 
