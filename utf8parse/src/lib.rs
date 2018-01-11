@@ -95,11 +95,14 @@ impl Parser {
 }
 
 #[cfg(test)]
-mod tests {
-    extern crate std;
+#[macro_use]
+extern crate std;
 
+#[cfg(test)]
+mod tests {
     use std::io::Read;
     use std::fs::File;
+    use std::string::String;
     use Receiver;
     use Parser;
 
