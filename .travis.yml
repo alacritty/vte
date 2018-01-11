@@ -7,4 +7,5 @@ rust:
   - nightly
 
 script:
-  - cargo test && cd utf8parse && cargo test
+  - cargo test
+  - cd utf8parse && cargo test
