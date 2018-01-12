@@ -12,3 +12,6 @@ readme = "README.md"
 [dependencies.utf8parse]
 path = "./utf8parse"
 version = "0.1"
+
+[workspace]
+
