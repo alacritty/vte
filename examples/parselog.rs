@@ -29,7 +29,7 @@ impl vte::Perform for Log {
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]]) {
-        println!("[csi_dispatch] params={:?}", params);
+        println!("[osc_dispatch] params={:?}", params);
     }
 
     fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
