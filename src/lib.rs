@@ -63,7 +63,7 @@ impl State {
 
 
 const MAX_INTERMEDIATES: usize = 2;
-const MAX_OSC_RAW: usize = 1024;
+const MAX_OSC_RAW: usize = 65536;
 const MAX_PARAMS: usize = 16;
 
 struct VtUtf8Receiver<'a, P: Perform + 'a>(&'a mut P, &'a mut State);
