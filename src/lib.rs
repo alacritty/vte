@@ -332,7 +332,7 @@ impl Parser {
                     // Completed a param
                     let idx = self.num_params;
 
-                    if idx == MAX_PARAMS {
+                    if idx == MAX_PARAMS - 1 {
                         return;
                     }
 
@@ -537,7 +537,7 @@ mod tests {
     fn parse_csi_max_params() {
         use MAX_PARAMS;
 
-        static INPUT: &'static [u8] = b"\x1b[;;;;;;;;;;;;;;;;;p";
+        static INPUT: &'static [u8] = b"\x1b[1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;p";
 
         // Create dispatcher and check state
         let mut dispatcher = CsiDispatcher::default();
@@ -588,6 +588,7 @@ mod tests {
         assert_eq!(dispatcher.params[0], &[i64::MAX as i64]);
 
     }
+
     #[test]
     fn parse_osc_with_utf8_arguments() {
         static INPUT: &'static [u8] = &[
