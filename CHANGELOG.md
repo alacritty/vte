@@ -5,6 +5,7 @@ CHANGELOG
 
 - Fix off-by-one error in CSI parsing when params list was at max length
   (previously caused a panic).
+- Support no_std
 
 ## 0.2.0
 
