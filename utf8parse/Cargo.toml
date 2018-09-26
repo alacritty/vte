@@ -1,6 +1,6 @@
 [package]
 name = "utf8parse"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Joe Wilm <joe@jwilm.com>"]
 license = "Apache-2.0 OR MIT"
 description = "Table-driven UTF-8 parser"
