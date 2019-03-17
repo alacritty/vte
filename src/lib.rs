@@ -30,9 +30,13 @@
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
-#![no_std]
+
+#![cfg_attr(not(feature="std"), no_std)]
 
 extern crate utf8parse as utf8;
+
+#[cfg(feature="std")]
+extern crate core;
 
 use core::mem;
 
@@ -57,6 +61,93 @@ impl State {
     pub fn entry_action(&self) -> Action {
         unsafe {
             *ENTRY_ACTIONS.get_unchecked(*self as usize)
+        }
+    }
+}
+
+#[cfg(feature="std")]
+mod oscbuf {
+    use super::MAX_OSC_RAW;
+
+    /// When std is available, we can simply use a Vec for the
+    /// OSC storage.  We'll pre-size it to something reasonable.
+    pub struct OscBuffer {
+        buf: Vec<u8>,
+    }
+
+    impl std::ops::Deref for OscBuffer {
+        type Target = Vec<u8>;
+        fn deref(&self) -> &Vec<u8> {
+            &self.buf
+        }
+    }
+
+    impl std::ops::DerefMut for OscBuffer {
+        fn deref_mut(&mut self) -> &mut Vec<u8> {
+            &mut self.buf
+        }
+    }
+
+    impl OscBuffer {
+        pub fn new() -> Self {
+            Self {
+                buf: Vec::with_capacity(MAX_OSC_RAW)
+            }
+        }
+
+        /// Returns true if we are able to store an additional
+        /// byte of data.  Since we have an allocator available,
+        /// we always return true.
+        pub fn have_capacity(&self) -> bool {
+            true
+        }
+    }
+}
+
+#[cfg(not(feature="std"))]
+mod oscbuf {
+    use super::MAX_OSC_RAW;
+    /// The no_std version of OscBuffer uses a statically allocated
+    /// array and thus has a limit on the size of the data that it
+    /// can hold.  If an OSC exceeds this length, it will be silently
+    /// truncated.
+    /// OscBuffer presents a subset of the Vec API.
+    pub struct OscBuffer {
+        buf: [u8; MAX_OSC_RAW],
+        idx: usize,
+    }
+
+    impl OscBuffer {
+        pub fn new() -> Self {
+            Self {
+                buf: [0; MAX_OSC_RAW],
+                idx: 0,
+            }
+        }
+
+        pub fn clear(&mut self) {
+            self.idx = 0;
+        }
+
+        pub fn len(&self) -> usize {
+            self.idx
+        }
+
+        pub fn as_slice(&self) -> &[u8] {
+            &self.buf
+        }
+
+        pub fn push(&mut self, byte: u8) {
+            self.buf[self.idx] = byte;
+            self.idx += 1;
+        }
+
+        /// Returns true if we are able to store an additional
+        /// byte of data.  Since we have no allocator available,
+        /// we only return true while we are within the bounds
+        /// of the static storage.
+        pub fn have_capacity(&self) -> bool {
+            self.idx < self.buf.len()
         }
     }
 }
@@ -91,9 +182,8 @@ pub struct Parser {
     param: i64,
     collecting_param: bool,
     num_params: usize,
-    osc_raw: [u8; MAX_OSC_RAW],
+    osc_raw: oscbuf::OscBuffer,
     osc_params: [(usize, usize); MAX_PARAMS],
-    osc_idx: usize,
     osc_num_params: usize,
     ignoring: bool,
     utf8_parser: utf8::Parser,
@@ -110,9 +200,8 @@ impl Parser {
             param: 0,
             collecting_param: false,
             num_params: 0,
-            osc_raw: [0; MAX_OSC_RAW],
+            osc_raw: oscbuf::OscBuffer::new(),
             osc_params: [(0, 0); MAX_PARAMS],
-            osc_idx: 0,
             osc_num_params: 0,
             ignoring: false,
             utf8_parser: utf8::Parser::new(),
@@ -211,7 +300,7 @@ impl Parser {
 
         for i in 0..self.osc_num_params {
             let indices = self.osc_params[i];
-            slices[i] = &self.osc_raw[indices.0..indices.1];
+            slices[i] = &self.osc_raw.as_slice()[indices.0..indices.1];
         }
 
         performer.osc_dispatch(
@@ -233,14 +322,15 @@ impl Parser {
             },
             Action::Put => performer.put(byte),
             Action::OscStart => {
-                self.osc_idx = 0;
+                self.osc_raw.clear();
                 self.osc_num_params = 0;
             },
             Action::OscPut => {
-                let idx = self.osc_idx;
-                if idx == self.osc_raw.len() {
+                if !self.osc_raw.have_capacity() {
                     return;
                 }
+
+                let idx = self.osc_raw.len();
 
                 // Param separator
                 if byte == b';' {
@@ -264,13 +354,12 @@ impl Parser {
 
                     self.osc_num_params += 1;
                 } else {
-                    self.osc_raw[idx] = byte;
-                    self.osc_idx += 1;
+                    self.osc_raw.push(byte);
                 }
             },
             Action::OscEnd => {
                 let param_idx = self.osc_num_params;
-                let idx = self.osc_idx;
+                let idx = self.osc_raw.len();
 
                 match param_idx {
                     // Finish last parameter if not already maxed
@@ -413,7 +502,7 @@ pub trait Perform {
     fn esc_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8);
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature="std")))]
 #[macro_use]
 extern crate std;
 
@@ -475,21 +564,29 @@ mod tests {
 
     #[test]
     fn parse_osc() {
-        // Create dispatcher and check state
-        let mut dispatcher = OscDispatcher::default();
-        assert_eq!(dispatcher.dispatched_osc, false);
-
-        // Run parser using OSC_BYTES
         let mut parser = Parser::new();
-        for byte in OSC_BYTES {
-            parser.advance(&mut dispatcher, *byte);
-        }
 
-        // Check that flag is set and thus osc_dispatch assertions ran.
-        assert!(dispatcher.dispatched_osc);
-        assert_eq!(dispatcher.params.len(), 2);
-        assert_eq!(dispatcher.params[0], &OSC_BYTES[2..3]);
-        assert_eq!(dispatcher.params[1], &OSC_BYTES[4..(OSC_BYTES.len() - 1)]);
+        // Assert that resetting the osc parser state takes effect
+        // by processing more than one OSC in a row on the same parser
+        // instance.
+        // An example of this not working out might be that the number
+        // of params might be too large, or that we somehow get bogus
+        // data in the params themselves
+        for _ in 0..2 {
+            let mut dispatcher = OscDispatcher::default();
+            assert_eq!(dispatcher.dispatched_osc, false);
+
+            // Run parser using OSC_BYTES
+            for byte in OSC_BYTES {
+                parser.advance(&mut dispatcher, *byte);
+            }
+
+            // Check that flag is set and thus osc_dispatch assertions ran.
+            assert!(dispatcher.dispatched_osc);
+            assert_eq!(dispatcher.params.len(), 2);
+            assert_eq!(dispatcher.params[0], &OSC_BYTES[2..3]);
+            assert_eq!(dispatcher.params[1], &OSC_BYTES[4..(OSC_BYTES.len() - 1)]);
+        }
     }
 
     #[test]
