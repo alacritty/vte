@@ -94,7 +94,7 @@ mod oscbuf {
         pub fn new(size_limit: usize) -> Self {
             Self {
                 buf: Vec::with_capacity(MAX_OSC_RAW.min(size_limit)),
-                    size_limit,
+                size_limit,
             }
         }
 
