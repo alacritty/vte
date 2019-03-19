@@ -68,11 +68,13 @@ impl State {
 #[cfg(feature="std")]
 mod oscbuf {
     use super::MAX_OSC_RAW;
+    pub const DEFAULT_SIZE_LIMIT: usize = u32::max_value() as usize;
 
     /// When std is available, we can simply use a Vec for the
     /// OSC storage.  We'll pre-size it to something reasonable.
     pub struct OscBuffer {
         buf: Vec<u8>,
+        size_limit: usize,
     }
 
     impl std::ops::Deref for OscBuffer {
@@ -89,17 +91,30 @@ mod oscbuf {
     }
 
     impl OscBuffer {
-        pub fn new() -> Self {
+        pub fn new(size_limit: usize) -> Self {
             Self {
-                buf: Vec::with_capacity(MAX_OSC_RAW)
+                buf: Vec::with_capacity(MAX_OSC_RAW.min(size_limit)),
+                    size_limit,
             }
+        }
+
+        pub fn clear(&mut self) {
+            // If we're a bit heavy, shrink our usage.
+            // Ideally we'd call Vec::shrink_to() but that is
+            // nightly only, so we fake it by resizing and then
+            // asking for a shrink to fit the desired capacity.
+            if self.buf.capacity() > 2 * MAX_OSC_RAW {
+                self.buf.resize(MAX_OSC_RAW, 0u8);
+                self.buf.shrink_to_fit();
+            }
+            self.buf.clear();
         }
 
         /// Returns true if we are able to store an additional
         /// byte of data.  Since we have an allocator available,
         /// we always return true.
         pub fn have_capacity(&self) -> bool {
-            true
+            self.buf.len() < self.size_limit
         }
     }
 }
@@ -107,6 +122,7 @@ mod oscbuf {
 #[cfg(not(feature="std"))]
 mod oscbuf {
     use super::MAX_OSC_RAW;
+    pub const DEFAULT_SIZE_LIMIT: usize = MAX_OSC_RAW;
     /// The no_std version of OscBuffer uses a statically allocated
     /// array and thus has a limit on the size of the data that it
     /// can hold.  If an OSC exceeds this length, it will be silently
@@ -115,13 +131,16 @@ mod oscbuf {
     pub struct OscBuffer {
         buf: [u8; MAX_OSC_RAW],
         idx: usize,
+        size_limit: usize,
     }
 
     impl OscBuffer {
-        pub fn new() -> Self {
+        pub fn new(size_limit: usize) -> Self {
+            debug_assert!(size_limit <= MAX_OSC_RAW);
             Self {
                 buf: [0; MAX_OSC_RAW],
                 idx: 0,
+                size_limit,
             }
         }
 
@@ -147,7 +166,7 @@ mod oscbuf {
         /// we only return true while we are within the bounds
         /// of the static storage.
         pub fn have_capacity(&self) -> bool {
-            self.idx < self.buf.len()
+            self.idx < self.size_limit
         }
     }
 }
@@ -155,6 +174,7 @@ mod oscbuf {
 
 const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_RAW: usize = 1024;
+const DEFAULT_OSC_SIZE_LIMIT: usize = oscbuf::DEFAULT_SIZE_LIMIT;
 const MAX_PARAMS: usize = 16;
 
 struct VtUtf8Receiver<'a, P: Perform + 'a>(&'a mut P, &'a mut State);
@@ -192,6 +212,10 @@ pub struct Parser {
 impl Parser {
     /// Create a new Parser
     pub fn new() -> Parser {
+        Self::with_osc_size_limit(DEFAULT_OSC_SIZE_LIMIT)
+    }
+
+    pub fn with_osc_size_limit(osc_size_limit: usize) -> Parser {
         Parser {
             state: State::Ground,
             intermediates: [0u8; MAX_INTERMEDIATES],
@@ -200,7 +224,7 @@ impl Parser {
             param: 0,
             collecting_param: false,
             num_params: 0,
-            osc_raw: oscbuf::OscBuffer::new(),
+            osc_raw: oscbuf::OscBuffer::new(osc_size_limit),
             osc_params: [(0, 0); MAX_PARAMS],
             osc_num_params: 0,
             ignoring: false,
@@ -587,6 +611,26 @@ mod tests {
             assert_eq!(dispatcher.params[0], &OSC_BYTES[2..3]);
             assert_eq!(dispatcher.params[1], &OSC_BYTES[4..(OSC_BYTES.len() - 1)]);
         }
+    }
+
+    #[test]
+    fn parse_osc_limit() {
+        let mut parser = Parser::with_osc_size_limit(2);
+        let mut dispatcher = OscDispatcher::default();
+        assert_eq!(dispatcher.dispatched_osc, false);
+
+        // Run parser using OSC_BYTES
+        for byte in OSC_BYTES {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Check that flag is set and thus osc_dispatch assertions ran.
+        assert!(dispatcher.dispatched_osc);
+        assert_eq!(dispatcher.params.len(), 2);
+        assert_eq!(dispatcher.params[0], &OSC_BYTES[2..3]);
+        // This next value should be truncated to a single byte by the
+        // size constraint
+        assert_eq!(dispatcher.params[1], &OSC_BYTES[4..5]);
     }
 
     #[test]
