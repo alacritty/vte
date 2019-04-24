@@ -13,7 +13,7 @@
 //! there simply logs all the actions [`Perform`] does. One quick thing to see it in action is to
 //! pipe `vim` into it
 //!
-//! ```ignore
+//! ```sh
 //! cargo build --release --example parselog
 //! vim | target/release/examples/parselog
 //! ```
