@@ -14,8 +14,8 @@ path = "utf8parse"
 version = "0.1"
 
 [features]
-default = ["std"]
-std = []
+default = []
+nostd = []
 
 [workspace]
 

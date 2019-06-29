@@ -31,11 +31,11 @@
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
 
-#![cfg_attr(not(feature="std"), no_std)]
+#![cfg_attr(feature="nostd", no_std)]
 
 extern crate utf8parse as utf8;
 
-#[cfg(feature="std")]
+#[cfg(not(feature="nostd"))]
 extern crate core;
 
 use core::mem;
@@ -65,13 +65,13 @@ impl State {
     }
 }
 
-#[cfg(feature="std")]
+#[cfg(not(feature="nostd"))]
 mod oscbuf {
     use super::MAX_OSC_RAW;
     pub const DEFAULT_SIZE_LIMIT: usize = u32::max_value() as usize;
 
     /// When std is available, we can simply use a Vec for the
-    /// OSC storage.  We'll pre-size it to something reasonable.
+    /// OSC storage. We'll pre-size it to something reasonable.
     pub struct OscBuffer {
         buf: Vec<u8>,
         size_limit: usize,
@@ -99,33 +99,32 @@ mod oscbuf {
         }
 
         pub fn clear(&mut self) {
-            // If we're a bit heavy, shrink our usage.
+            // If we're a bit heavy, make an attempt to shrink our usage.
             // Ideally we'd call Vec::shrink_to() but that is
             // nightly only, so we fake it by resizing and then
             // asking for a shrink to fit the desired capacity.
             if self.buf.capacity() > 2 * MAX_OSC_RAW {
-                self.buf.resize(MAX_OSC_RAW, 0u8);
+                self.buf.truncate(MAX_OSC_RAW);
                 self.buf.shrink_to_fit();
             }
             self.buf.clear();
         }
 
         /// Returns true if we are able to store an additional
-        /// byte of data.  Since we have an allocator available,
-        /// we always return true.
-        pub fn have_capacity(&self) -> bool {
+        /// byte of data.
+        pub fn has_capacity(&self) -> bool {
             self.buf.len() < self.size_limit
         }
     }
 }
 
-#[cfg(not(feature="std"))]
+#[cfg(feature="nostd")]
 mod oscbuf {
     use super::MAX_OSC_RAW;
     pub const DEFAULT_SIZE_LIMIT: usize = MAX_OSC_RAW;
     /// The no_std version of OscBuffer uses a statically allocated
     /// array and thus has a limit on the size of the data that it
-    /// can hold.  If an OSC exceeds this length, it will be silently
+    /// can hold. If an OSC exceeds this length, it will be silently
     /// truncated.
     /// OscBuffer presents a subset of the Vec API.
     pub struct OscBuffer {
@@ -136,7 +135,7 @@ mod oscbuf {
 
     impl OscBuffer {
         pub fn new(size_limit: usize) -> Self {
-            debug_assert!(size_limit <= MAX_OSC_RAW);
+            assert!(size_limit <= MAX_OSC_RAW);
             Self {
                 buf: [0; MAX_OSC_RAW],
                 idx: 0,
@@ -162,10 +161,10 @@ mod oscbuf {
         }
 
         /// Returns true if we are able to store an additional
-        /// byte of data.  Since we have no allocator available,
+        /// byte of data. Since we have no allocator available,
         /// we only return true while we are within the bounds
         /// of the static storage.
-        pub fn have_capacity(&self) -> bool {
+        pub fn has_capacity(&self) -> bool {
             self.idx < self.size_limit
         }
     }
@@ -350,7 +349,7 @@ impl Parser {
                 self.osc_num_params = 0;
             },
             Action::OscPut => {
-                if !self.osc_raw.have_capacity() {
+                if !self.osc_raw.has_capacity() {
                     return;
                 }
 
@@ -526,7 +525,7 @@ pub trait Perform {
     fn esc_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8);
 }
 
-#[cfg(all(test, not(feature="std")))]
+#[cfg(all(test, feature="nostd"))]
 #[macro_use]
 extern crate std;
 
