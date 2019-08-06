@@ -292,7 +292,6 @@ impl Parser {
             },
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
-
                 self.params[self.num_params] = self.param;
                 self.num_params += 1;
 
@@ -552,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_trailing_semi() {
+    fn parse_csi_params_trailing_semicolon() {
         let mut dispatcher = CsiDispatcher::default();
         let mut parser = Parser::new();
 
