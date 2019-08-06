@@ -89,7 +89,6 @@ pub struct Parser {
     intermediate_idx: usize,
     params: [i64; MAX_PARAMS],
     param: i64,
-    collecting_param: bool,
     num_params: usize,
     osc_raw: [u8; MAX_OSC_RAW],
     osc_params: [(usize, usize); MAX_PARAMS],
@@ -108,7 +107,6 @@ impl Parser {
             intermediate_idx: 0,
             params: [0i64; MAX_PARAMS],
             param: 0,
-            collecting_param: false,
             num_params: 0,
             osc_raw: [0; MAX_OSC_RAW],
             osc_params: [(0, 0); MAX_PARAMS],
@@ -294,19 +292,9 @@ impl Parser {
             },
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
-                if self.collecting_param {
-                    let idx = self.num_params;
-                    self.params[idx] = self.param;
-                    self.num_params += 1;
-                } else {
-                    // Last character was a semicolon, add a trailing zero
 
-                    let idx = self.num_params;
-                    if idx != MAX_PARAMS {
-                        self.params[idx] = 0;
-                        self.num_params += 1;
-                    }
-                }
+                self.params[self.num_params] = self.param;
+                self.num_params += 1;
 
                 performer.csi_dispatch(
                     self.params(),
@@ -317,7 +305,6 @@ impl Parser {
 
                 self.num_params = 0;
                 self.param = 0;
-                self.collecting_param = false;
             }
             Action::EscDispatch => {
                 performer.esc_dispatch(
@@ -348,12 +335,10 @@ impl Parser {
                     self.params[idx] = self.param;
                     self.param = 0;
                     self.num_params += 1;
-                    self.collecting_param = false;
                 } else {
                     // Continue collecting bytes into param
                     self.param = self.param.saturating_mul(10);
                     self.param = self.param.saturating_add((byte - b'0') as i64);
-                    self.collecting_param = true;
                 }
             },
             Action::Clear => {
