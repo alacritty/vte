@@ -89,7 +89,6 @@ pub struct Parser {
     intermediate_idx: usize,
     params: [i64; MAX_PARAMS],
     param: i64,
-    collecting_param: bool,
     num_params: usize,
     osc_raw: [u8; MAX_OSC_RAW],
     osc_params: [(usize, usize); MAX_PARAMS],
@@ -108,7 +107,6 @@ impl Parser {
             intermediate_idx: 0,
             params: [0i64; MAX_PARAMS],
             param: 0,
-            collecting_param: false,
             num_params: 0,
             osc_raw: [0; MAX_OSC_RAW],
             osc_params: [(0, 0); MAX_PARAMS],
@@ -294,11 +292,9 @@ impl Parser {
             },
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
-                if self.collecting_param {
-                    let idx = self.num_params;
-                    self.params[idx] = self.param;
-                    self.num_params += 1;
-                }
+                self.params[self.num_params] = self.param;
+                self.num_params += 1;
+
                 performer.csi_dispatch(
                     self.params(),
                     self.intermediates(),
@@ -308,7 +304,6 @@ impl Parser {
 
                 self.num_params = 0;
                 self.param = 0;
-                self.collecting_param = false;
             }
             Action::EscDispatch => {
                 performer.esc_dispatch(
@@ -339,12 +334,10 @@ impl Parser {
                     self.params[idx] = self.param;
                     self.param = 0;
                     self.num_params += 1;
-                    self.collecting_param = false;
                 } else {
                     // Continue collecting bytes into param
                     self.param = self.param.saturating_mul(10);
                     self.param = self.param.saturating_add((byte - b'0') as i64);
-                    self.collecting_param = true;
                 }
             },
             Action::Clear => {
@@ -555,6 +548,19 @@ mod tests {
         assert_eq!(dispatcher.params.len(), 1);
         assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
 
+    }
+
+    #[test]
+    fn parse_csi_params_trailing_semicolon() {
+        let mut dispatcher = CsiDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in b"\x1b[4;m" {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.params.len(), 1);
+        assert_eq!(dispatcher.params[0], &[4, 0]);
     }
 
     #[test]
