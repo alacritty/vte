@@ -298,7 +298,16 @@ impl Parser {
                     let idx = self.num_params;
                     self.params[idx] = self.param;
                     self.num_params += 1;
+                } else {
+                    // Last character was a semicolon, add a trailing zero
+
+                    let idx = self.num_params;
+                    if idx != MAX_PARAMS {
+                        self.params[idx] = 0;
+                        self.num_params += 1;
+                    }
                 }
+
                 performer.csi_dispatch(
                     self.params(),
                     self.intermediates(),
@@ -555,6 +564,19 @@ mod tests {
         assert_eq!(dispatcher.params.len(), 1);
         assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
 
+    }
+
+    #[test]
+    fn parse_trailing_semi() {
+        let mut dispatcher = CsiDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in b"\x1b[4;m" {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.params.len(), 1);
+        assert_eq!(dispatcher.params[0], &[4, 0]);
     }
 
     #[test]
