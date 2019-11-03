@@ -186,13 +186,13 @@ impl Parser {
             state => {
                 // Exit action for previous state
                 let exit_action = self.state.exit_action();
-                maybe_action!(exit_action, 0);
+                maybe_action!(exit_action, byte);
 
                 // Transition action
                 maybe_action!(action, byte);
 
                 // Entry action for new state
-                maybe_action!(state.entry_action(), 0);
+                maybe_action!(state.entry_action(), byte);
 
                 // Assume the new state
                 self.state = state;
@@ -223,10 +223,14 @@ impl Parser {
             Action::Print => performer.print(byte as char),
             Action::Execute => performer.execute(byte),
             Action::Hook => {
+                self.params[self.num_params] = self.param;
+                self.num_params += 1;
+
                 performer.hook(
                     self.params(),
                     self.intermediates(),
                     self.ignoring,
+                    byte as char,
                 );
             },
             Action::Put => performer.put(byte),
@@ -378,7 +382,7 @@ pub trait Perform {
     ///
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
-    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool);
+    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, char);
 
     /// Pass bytes as part of a device control string to the handle chosen in `hook`. C0 controls
     /// will also be passed to the handler.
@@ -433,7 +437,7 @@ mod tests {
     impl Perform for OscDispatcher {
         fn print(&mut self, _: char) {}
         fn execute(&mut self, _byte: u8) {}
-        fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool) {}
+        fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _: char) {}
         fn put(&mut self, _byte: u8) {}
         fn unhook(&mut self) {}
         fn osc_dispatch(&mut self, params: &[&[u8]]) {
@@ -454,7 +458,7 @@ mod tests {
     impl Perform for CsiDispatcher {
         fn print(&mut self, _: char) {}
         fn execute(&mut self, _byte: u8) {}
-        fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool) {}
+        fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _: char) {}
         fn put(&mut self, _byte: u8) {}
         fn unhook(&mut self) {}
         fn osc_dispatch(&mut self, _params: &[&[u8]]) { }
@@ -465,6 +469,31 @@ mod tests {
         fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
     }
 
+    #[derive(Default)]
+    struct DcsDispatcher {
+        dispatched_dcs: bool,
+        params: Vec<i64>,
+        c: Option<char>,
+        s: Vec<u8>,
+    }
+
+    impl Perform for DcsDispatcher {
+        fn print(&mut self, _: char) {}
+        fn execute(&mut self, _byte: u8) {}
+        fn hook(&mut self, params: &[i64], _intermediates: &[u8], _ignore: bool, c: char) {
+            self.c = Some(c);
+            self.params = params.to_vec();
+        }
+        fn put(&mut self, byte: u8) {
+            self.s.push(byte);
+        }
+        fn unhook(&mut self) {
+            self.dispatched_dcs = true;
+        }
+        fn osc_dispatch(&mut self, _params: &[&[u8]]) { }
+        fn csi_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {}
+        fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+    }
 
     #[test]
     fn parse_osc() {
@@ -616,5 +645,27 @@ mod tests {
         // Check that flag is set and thus osc_dispatch assertions ran.
         assert_eq!(dispatcher.params[0], &[b'2']);
         assert_eq!(dispatcher.params[1], &INPUT[5..(INPUT.len() - 1)]);
+    }
+
+    #[test]
+    fn parse_dcs() {
+        static INPUT: &'static [u8] = &[
+            0x1b, 0x50, 0x30, 0x3b, 0x31, 0x7c, 0x31, 0x37, 0x2f, 0x61, 0x62,
+            0x9c,
+        ];
+
+        // Create dispatcher and check state
+        let mut dispatcher = DcsDispatcher::default();
+
+        // Run parser using OSC_BYTES
+        let mut parser = Parser::new();
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert!(dispatcher.dispatched_dcs);
+        assert_eq!(dispatcher.params, vec![0, 1]);
+        assert_eq!(dispatcher.c, Some('|'));
+        assert_eq!(dispatcher.s, b"17/ab".to_vec());
     }
 }
