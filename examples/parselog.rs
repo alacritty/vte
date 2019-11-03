@@ -15,9 +15,9 @@ impl vte::Perform for Log {
         println!("[execute] {:02x}", byte);
     }
 
-    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool) {
-        println!("[hook] params={:?}, intermediates={:?}, ignore={:?}",
-                 params, intermediates, ignore);
+    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
+        println!("[hook] params={:?}, intermediates={:?}, ignore={:?}, char={:?}",
+                 params, intermediates, ignore, c);
     }
 
     fn put(&mut self, byte: u8) {
