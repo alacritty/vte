@@ -34,33 +34,28 @@
 
 extern crate utf8parse as utf8;
 
-use core::mem;
+use core::mem::{self, MaybeUninit};
 
-mod table;
 mod definitions;
+mod table;
 
-use definitions::{Action, State, unpack};
+use definitions::{unpack, Action, State};
 
-use table::{EXIT_ACTIONS, ENTRY_ACTIONS, STATE_CHANGE};
+use table::{ENTRY_ACTIONS, EXIT_ACTIONS, STATE_CHANGE};
 
 impl State {
     /// Get exit action for this state
     #[inline(always)]
     pub fn exit_action(&self) -> Action {
-        unsafe {
-            *EXIT_ACTIONS.get_unchecked(*self as usize)
-        }
+        unsafe { *EXIT_ACTIONS.get_unchecked(*self as usize) }
     }
 
     /// Get entry action for this state
     #[inline(always)]
     pub fn entry_action(&self) -> Action {
-        unsafe {
-            *ENTRY_ACTIONS.get_unchecked(*self as usize)
-        }
+        unsafe { *ENTRY_ACTIONS.get_unchecked(*self as usize) }
     }
 }
-
 
 const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_RAW: usize = 1024;
@@ -156,7 +151,8 @@ impl Parser {
 
     #[inline]
     fn process_utf8<P>(&mut self, performer: &mut P, byte: u8)
-        where P: Perform
+    where
+        P: Perform,
     {
         let mut receiver = VtUtf8Receiver(performer, &mut self.state);
         let utf8_parser = &mut self.utf8_parser;
@@ -165,7 +161,8 @@ impl Parser {
 
     #[inline]
     fn perform_state_change<P>(&mut self, performer: &mut P, state: State, action: Action, byte: u8)
-        where P: Perform
+    where
+        P: Perform,
     {
         macro_rules! maybe_action {
             ($action:expr, $arg:expr) => {
@@ -173,16 +170,16 @@ impl Parser {
                     Action::None => (),
                     action => {
                         self.perform_action(performer, action, $arg);
-                    },
+                    }
                 }
-            }
+            };
         }
 
         match state {
             State::Anywhere => {
                 // Just run the action
                 self.perform_action(performer, action, byte);
-            },
+            }
             state => {
                 // Exit action for previous state
                 let exit_action = self.state.exit_action();
@@ -205,16 +202,19 @@ impl Parser {
     /// The aliasing is needed here for multiple slices into self.osc_raw
     #[inline]
     fn osc_dispatch<P: Perform>(&self, performer: &mut P) {
-        let mut slices: [&[u8]; MAX_PARAMS] = unsafe { mem::uninitialized() };
+        let mut slices: [MaybeUninit<&[u8]>; MAX_PARAMS] =
+            unsafe { MaybeUninit::uninit().assume_init() };
 
         for i in 0..self.osc_num_params {
             let indices = self.osc_params[i];
-            slices[i] = &self.osc_raw[indices.0..indices.1];
+            slices[i] = MaybeUninit::new(&self.osc_raw[indices.0..indices.1]);
         }
 
-        performer.osc_dispatch(
-            &slices[..self.osc_num_params],
-        );
+        unsafe {
+            performer.osc_dispatch(mem::transmute::<_, &[&[u8]]>(
+                &slices[..self.osc_num_params],
+            ));
+        }
     }
 
     #[inline]
@@ -232,12 +232,12 @@ impl Parser {
                     self.ignoring,
                     byte as char,
                 );
-            },
+            }
             Action::Put => performer.put(byte),
             Action::OscStart => {
                 self.osc_idx = 0;
                 self.osc_num_params = 0;
-            },
+            }
             Action::OscPut => {
                 let idx = self.osc_idx;
                 if idx == self.osc_raw.len() {
@@ -254,7 +254,7 @@ impl Parser {
                         // First param is special - 0 to current byte index
                         0 => {
                             self.osc_params[param_idx] = (0, idx);
-                        },
+                        }
 
                         // All other params depend on previous indexing
                         _ => {
@@ -269,7 +269,7 @@ impl Parser {
                     self.osc_raw[idx] = byte;
                     self.osc_idx += 1;
                 }
-            },
+            }
             Action::OscEnd => {
                 let param_idx = self.osc_num_params;
                 let idx = self.osc_idx;
@@ -282,7 +282,7 @@ impl Parser {
                     0 => {
                         self.osc_params[param_idx] = (0, idx);
                         self.osc_num_params += 1;
-                    },
+                    }
 
                     // All other params depend on previous indexing
                     _ => {
@@ -293,7 +293,7 @@ impl Parser {
                     }
                 }
                 self.osc_dispatch(performer);
-            },
+            }
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
                 self.params[self.num_params] = self.param;
@@ -303,20 +303,15 @@ impl Parser {
                     self.params(),
                     self.intermediates(),
                     self.ignoring,
-                    byte as char
+                    byte as char,
                 );
 
                 self.num_params = 0;
                 self.param = 0;
             }
             Action::EscDispatch => {
-                performer.esc_dispatch(
-                    self.params(),
-                    self.intermediates(),
-                    self.ignoring,
-                    byte
-                );
-            },
+                performer.esc_dispatch(self.params(), self.intermediates(), self.ignoring, byte);
+            }
             Action::Ignore | Action::None => (),
             Action::Collect => {
                 if self.intermediate_idx == MAX_INTERMEDIATES {
@@ -325,7 +320,7 @@ impl Parser {
                     self.intermediates[self.intermediate_idx] = byte;
                     self.intermediate_idx += 1;
                 }
-            },
+            }
             Action::Param => {
                 if byte == b';' {
                     // Completed a param
@@ -343,15 +338,15 @@ impl Parser {
                     self.param = self.param.saturating_mul(10);
                     self.param = self.param.saturating_add((byte - b'0') as i64);
                 }
-            },
+            }
             Action::Clear => {
                 self.intermediate_idx = 0;
                 self.num_params = 0;
                 self.ignoring = false;
-            },
+            }
             Action::BeginUtf8 => {
                 self.process_utf8(performer, byte);
-            },
+            }
         }
     }
 }
@@ -416,15 +411,15 @@ extern crate std;
 
 #[cfg(test)]
 mod tests {
-    use std::vec::Vec;
     use super::{Parser, Perform};
     use core::i64;
+    use std::vec::Vec;
 
-    static OSC_BYTES: &'static [u8] = &[0x1b, 0x5d, // Begin OSC
-        b'2', b';', b'j', b'w', b'i', b'l', b'm', b'@', b'j', b'w', b'i', b'l',
-        b'm', b'-', b'd', b'e', b's', b'k', b':', b' ', b'~', b'/', b'c', b'o',
-        b'd', b'e', b'/', b'a', b'l', b'a', b'c', b'r', b'i', b't', b't', b'y',
-        0x07 // End OSC
+    static OSC_BYTES: &'static [u8] = &[
+        0x1b, 0x5d, // Begin OSC
+        b'2', b';', b'j', b'w', b'i', b'l', b'm', b'@', b'j', b'w', b'i', b'l', b'm', b'-', b'd',
+        b'e', b's', b'k', b':', b' ', b'~', b'/', b'c', b'o', b'd', b'e', b'/', b'a', b'l', b'a',
+        b'c', b'r', b'i', b't', b't', b'y', 0x07, // End OSC
     ];
 
     #[derive(Default)]
@@ -445,8 +440,22 @@ mod tests {
             self.dispatched_osc = true;
             self.params = params.iter().map(|p| p.to_vec()).collect();
         }
-        fn csi_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {}
-        fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+        fn csi_dispatch(
+            &mut self,
+            _params: &[i64],
+            _intermediates: &[u8],
+            _ignore: bool,
+            _c: char,
+        ) {
+        }
+        fn esc_dispatch(
+            &mut self,
+            _params: &[i64],
+            _intermediates: &[u8],
+            _ignore: bool,
+            _byte: u8,
+        ) {
+        }
     }
 
     #[derive(Default)]
@@ -461,12 +470,19 @@ mod tests {
         fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _: char) {}
         fn put(&mut self, _byte: u8) {}
         fn unhook(&mut self) {}
-        fn osc_dispatch(&mut self, _params: &[&[u8]]) { }
+        fn osc_dispatch(&mut self, _params: &[&[u8]]) {}
         fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {
             self.dispatched_csi = true;
             self.params.push(params.to_vec());
         }
-        fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+        fn esc_dispatch(
+            &mut self,
+            _params: &[i64],
+            _intermediates: &[u8],
+            _ignore: bool,
+            _byte: u8,
+        ) {
+        }
     }
 
     #[derive(Default)]
@@ -490,9 +506,23 @@ mod tests {
         fn unhook(&mut self) {
             self.dispatched_dcs = true;
         }
-        fn osc_dispatch(&mut self, _params: &[&[u8]]) { }
-        fn csi_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {}
-        fn esc_dispatch(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+        fn osc_dispatch(&mut self, _params: &[&[u8]]) {}
+        fn csi_dispatch(
+            &mut self,
+            _params: &[i64],
+            _intermediates: &[u8],
+            _ignore: bool,
+            _c: char,
+        ) {
+        }
+        fn esc_dispatch(
+            &mut self,
+            _params: &[i64],
+            _intermediates: &[u8],
+            _ignore: bool,
+            _byte: u8,
+        ) {
+        }
     }
 
     #[test]
@@ -552,7 +582,6 @@ mod tests {
         for param in dispatcher.params.iter() {
             assert_eq!(param.len(), 0);
         }
-
     }
 
     #[test]
@@ -565,7 +594,6 @@ mod tests {
         let mut dispatcher = CsiDispatcher::default();
         assert!(!dispatcher.dispatched_csi);
 
-
         // Run parser using OSC_BYTES
         let mut parser = Parser::new();
         for byte in INPUT {
@@ -576,7 +604,6 @@ mod tests {
         assert!(dispatcher.dispatched_csi);
         assert_eq!(dispatcher.params.len(), 1);
         assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
-
     }
 
     #[test]
@@ -594,7 +621,6 @@ mod tests {
 
     #[test]
     fn parse_semi_set_underline() {
-
         // Create dispatcher and check state
         let mut dispatcher = CsiDispatcher::default();
 
@@ -621,20 +647,21 @@ mod tests {
         }
 
         assert_eq!(dispatcher.params[0], &[i64::MAX as i64]);
-
     }
 
     #[test]
     fn parse_osc_with_utf8_arguments() {
         static INPUT: &'static [u8] = &[
-            0x0d, 0x1b, 0x5d, 0x32, 0x3b, 0x65, 0x63, 0x68, 0x6f, 0x20, 0x27,
-            0xc2, 0xaf, 0x5c, 0x5f, 0x28, 0xe3, 0x83, 0x84, 0x29, 0x5f, 0x2f,
-            0xc2, 0xaf, 0x27, 0x20, 0x26, 0x26, 0x20, 0x73, 0x6c, 0x65, 0x65,
-            0x70, 0x20, 0x31, 0x07
+            0x0d, 0x1b, 0x5d, 0x32, 0x3b, 0x65, 0x63, 0x68, 0x6f, 0x20, 0x27, 0xc2, 0xaf, 0x5c,
+            0x5f, 0x28, 0xe3, 0x83, 0x84, 0x29, 0x5f, 0x2f, 0xc2, 0xaf, 0x27, 0x20, 0x26, 0x26,
+            0x20, 0x73, 0x6c, 0x65, 0x65, 0x70, 0x20, 0x31, 0x07,
         ];
 
         // Create dispatcher and check state
-        let mut dispatcher = OscDispatcher { params: vec![], dispatched_osc: false };
+        let mut dispatcher = OscDispatcher {
+            params: vec![],
+            dispatched_osc: false,
+        };
 
         // Run parser using OSC_BYTES
         let mut parser = Parser::new();
@@ -650,8 +677,7 @@ mod tests {
     #[test]
     fn parse_dcs() {
         static INPUT: &'static [u8] = &[
-            0x1b, 0x50, 0x30, 0x3b, 0x31, 0x7c, 0x31, 0x37, 0x2f, 0x61, 0x62,
-            0x9c,
+            0x1b, 0x50, 0x30, 0x3b, 0x31, 0x7c, 0x31, 0x37, 0x2f, 0x61, 0x62, 0x9c,
         ];
 
         // Create dispatcher and check state

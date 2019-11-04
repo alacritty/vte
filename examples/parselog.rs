@@ -16,8 +16,10 @@ impl vte::Perform for Log {
     }
 
     fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
-        println!("[hook] params={:?}, intermediates={:?}, ignore={:?}, char={:?}",
-                 params, intermediates, ignore, c);
+        println!(
+            "[hook] params={:?}, intermediates={:?}, ignore={:?}, char={:?}",
+            params, intermediates, ignore, c
+        );
     }
 
     fn put(&mut self, byte: u8) {
@@ -33,15 +35,18 @@ impl vte::Perform for Log {
     }
 
     fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
-        println!("[csi_dispatch] params={:?}, intermediates={:?}, ignore={:?}, char={:?}",
-                 params, intermediates, ignore, c);
+        println!(
+            "[csi_dispatch] params={:?}, intermediates={:?}, ignore={:?}, char={:?}",
+            params, intermediates, ignore, c
+        );
     }
 
     fn esc_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8) {
-        println!("[esc_dispatch] params={:?}, intermediates={:?}, ignore={:?}, byte={:02x}",
-                 params, intermediates, ignore, byte);
+        println!(
+            "[esc_dispatch] params={:?}, intermediates={:?}, ignore={:?}, byte={:02x}",
+            params, intermediates, ignore, byte
+        );
     }
-
 }
 
 fn main() {
@@ -51,7 +56,7 @@ fn main() {
     let mut statemachine = vte::Parser::new();
     let mut parser = Log;
 
-    let mut buf: [u8; 2048] = unsafe { std::mem::uninitialized() };
+    let mut buf = [0; 2048];
 
     loop {
         match handle.read(&mut buf) {
@@ -60,7 +65,7 @@ fn main() {
                 for byte in &buf[..n] {
                     statemachine.advance(&mut parser, *byte);
                 }
-            },
+            }
             Err(err) => {
                 println!("err: {}", err);
                 break;
