@@ -83,6 +83,7 @@ impl<'a, P: Perform> utf8::Receiver for VtUtf8Receiver<'a, P> {
 /// Parser for raw _VTE_ protocol which delegates actions to a [`Perform`]
 ///
 /// [`Perform`]: trait.Perform.html
+#[derive(Clone)]
 pub struct Parser {
     state: State,
     intermediates: [u8; MAX_INTERMEDIATES],

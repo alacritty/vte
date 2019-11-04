@@ -25,6 +25,7 @@ pub trait Receiver {
 /// A parser for Utf8 Characters
 ///
 /// Repeatedly call `advance` with bytes to emit Utf8 characters
+#[derive(Clone)]
 pub struct Parser {
     point: u32,
     state: State,
