@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## 0.4.0
+
+- Fix handling of DCS escapes
+
 ## 0.3.3
 
 - Fix off-by-one error in CSI parsing when params list was at max length
