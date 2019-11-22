@@ -7,5 +7,5 @@ rust:
   - nightly
 
 script:
-  - cargo test --no-default-features
-  - cargo test
+  - cargo test --workspace --no-default-features
+  - cargo test --workspace
