@@ -30,11 +30,18 @@
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
-#![no_std]
+#![cfg_attr(feature = "no_std", no_std)]
 
+#[cfg(feature = "no_std")]
+extern crate arrayvec;
+#[cfg(not(feature = "no_std"))]
+extern crate core;
 extern crate utf8parse as utf8;
 
 use core::mem::{self, MaybeUninit};
+
+#[cfg(feature = "no_std")]
+use arrayvec::ArrayVec;
 
 mod definitions;
 mod table;
@@ -58,6 +65,7 @@ impl State {
 }
 
 const MAX_INTERMEDIATES: usize = 2;
+#[cfg(any(feature = "no_std", test))]
 const MAX_OSC_RAW: usize = 1024;
 const MAX_PARAMS: usize = 16;
 
@@ -85,9 +93,11 @@ pub struct Parser {
     params: [i64; MAX_PARAMS],
     param: i64,
     num_params: usize,
-    osc_raw: [u8; MAX_OSC_RAW],
+    #[cfg(feature = "no_std")]
+    osc_raw: ArrayVec<[u8; MAX_OSC_RAW]>,
+    #[cfg(not(feature = "no_std"))]
+    osc_raw: Vec<u8>,
     osc_params: [(usize, usize); MAX_PARAMS],
-    osc_idx: usize,
     osc_num_params: usize,
     ignoring: bool,
     utf8_parser: utf8::Parser,
@@ -103,9 +113,11 @@ impl Parser {
             params: [0i64; MAX_PARAMS],
             param: 0,
             num_params: 0,
-            osc_raw: [0; MAX_OSC_RAW],
+            #[cfg(feature = "no_std")]
+            osc_raw: ArrayVec::new(),
+            #[cfg(not(feature = "no_std"))]
+            osc_raw: Vec::new(),
             osc_params: [(0, 0); MAX_PARAMS],
-            osc_idx: 0,
             osc_num_params: 0,
             ignoring: false,
             utf8_parser: utf8::Parser::new(),
@@ -235,14 +247,18 @@ impl Parser {
             }
             Action::Put => performer.put(byte),
             Action::OscStart => {
-                self.osc_idx = 0;
+                self.osc_raw.clear();
                 self.osc_num_params = 0;
             }
             Action::OscPut => {
-                let idx = self.osc_idx;
-                if idx == self.osc_raw.len() {
-                    return;
+                #[cfg(feature = "no_std")]
+                {
+                    if self.osc_raw.is_full() {
+                        return;
+                    }
                 }
+
+                let idx = self.osc_raw.len();
 
                 // Param separator
                 if byte == b';' {
@@ -266,13 +282,12 @@ impl Parser {
 
                     self.osc_num_params += 1;
                 } else {
-                    self.osc_raw[idx] = byte;
-                    self.osc_idx += 1;
+                    self.osc_raw.push(byte);
                 }
             }
             Action::OscEnd => {
                 let param_idx = self.osc_num_params;
-                let idx = self.osc_idx;
+                let idx = self.osc_raw.len();
 
                 match param_idx {
                     // Finish last parameter if not already maxed
@@ -405,15 +420,16 @@ pub trait Perform {
     fn esc_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "no_std"))]
 #[macro_use]
 extern crate std;
 
 #[cfg(test)]
 mod tests {
-    use super::{Parser, Perform};
-    use core::i64;
+    use super::*;
+
     use std::vec::Vec;
+    use core::i64;
 
     static OSC_BYTES: &'static [u8] = &[
         0x1b, 0x5d, // Begin OSC
@@ -693,5 +709,43 @@ mod tests {
         assert_eq!(dispatcher.params, vec![0, 1]);
         assert_eq!(dispatcher.c, Some('|'));
         assert_eq!(dispatcher.s, b"17/ab".to_vec());
+    }
+
+    #[test]
+    fn exceed_max_buffer_size() {
+        static NUM_BYTES: usize = MAX_OSC_RAW + 100;
+        static INPUT_START: &'static [u8] = &[
+            0x1b, b']', b'5', b'2', b';', b's'
+        ];
+        static INPUT_END: &'static [u8] = &[b'\x07'];
+
+        let mut dispatcher = OscDispatcher::default();
+        let mut parser = Parser::new();
+
+        // Create valid OSC escape
+        for byte in INPUT_START {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Exceed max buffer size
+        for _ in 0..NUM_BYTES {
+            parser.advance(&mut dispatcher, b'a');
+        }
+
+        // Terminate escape for dispatch
+        for byte in INPUT_END {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert!(dispatcher.dispatched_osc);
+
+        assert_eq!(dispatcher.params.len(), 2);
+        assert_eq!(dispatcher.params[0], b"52");
+
+        #[cfg(not(feature = "no_std"))]
+        assert_eq!(dispatcher.params[1].len(), NUM_BYTES + INPUT_END.len());
+
+        #[cfg(feature = "no_std")]
+        assert_eq!(dispatcher.params[1].len(), MAX_OSC_RAW - dispatcher.params[0].len());
     }
 }

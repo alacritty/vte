@@ -9,9 +9,10 @@ repository = "https://github.com/jwilm/vte"
 documentation = "https://docs.rs/vte/"
 readme = "README.md"
 
-[dependencies.utf8parse]
-path = "utf8parse"
-version = "0.1"
+[dependencies]
+arrayvec = { version = "0.5.1", default-features = false, optional = true }
+utf8parse = { path = "utf8parse", version = "0.1.0" }
 
-[workspace]
-
+[features]
+default = ["no_std"]
+no_std = ["arrayvec"]
