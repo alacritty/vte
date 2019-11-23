@@ -1,10 +1,10 @@
 #![allow(dead_code)]
-extern crate syntex;
-extern crate syntex_syntax;
-
-mod ext;
 
 use std::path::Path;
+
+use syntex;
+
+mod ext;
 
 fn main() {
     // Expand VT parser state table

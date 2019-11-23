@@ -1,7 +1,7 @@
 //! Parse input from stdin and log actions on stdout
-extern crate vte;
-
 use std::io::{self, Read};
+
+use vte;
 
 /// A type implementing Perform that just logs actions
 struct Log;
@@ -65,11 +65,11 @@ fn main() {
                 for byte in &buf[..n] {
                     statemachine.advance(&mut parser, *byte);
                 }
-            }
+            },
             Err(err) => {
                 println!("err: {}", err);
                 break;
-            }
+            },
         }
     }
 }

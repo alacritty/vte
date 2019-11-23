@@ -27,6 +27,12 @@ pub enum State {
     Utf8_4_3_f4 = 7,
 }
 
+impl Default for State {
+    fn default() -> State {
+        State::Ground
+    }
+}
+
 /// Action to take when receiving a byte
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
@@ -70,7 +76,6 @@ pub unsafe fn unpack(val: u8) -> (State, Action) {
     (
         // State is stored in bottom 4 bits
         mem::transmute(val & 0x0f),
-
         // Action is stored in top 4 bits
         mem::transmute(val >> 4),
     )

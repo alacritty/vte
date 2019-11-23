@@ -1,43 +1,49 @@
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub enum State {
-   Anywhere = 0,
-   CsiEntry = 1,
-   CsiIgnore = 2,
-   CsiIntermediate = 3,
-   CsiParam = 4,
-   DcsEntry = 5,
-   DcsIgnore = 6,
-   DcsIntermediate = 7,
-   DcsParam = 8,
-   DcsPassthrough = 9,
-   Escape = 10,
-   EscapeIntermediate = 11,
-   Ground = 12,
-   OscString = 13,
-   SosPmApcString = 14,
-   Utf8 = 15,
+    Anywhere = 0,
+    CsiEntry = 1,
+    CsiIgnore = 2,
+    CsiIntermediate = 3,
+    CsiParam = 4,
+    DcsEntry = 5,
+    DcsIgnore = 6,
+    DcsIntermediate = 7,
+    DcsParam = 8,
+    DcsPassthrough = 9,
+    Escape = 10,
+    EscapeIntermediate = 11,
+    Ground = 12,
+    OscString = 13,
+    SosPmApcString = 14,
+    Utf8 = 15,
+}
+
+impl Default for State {
+    fn default() -> State {
+        State::Ground
+    }
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
-   None = 0,
-   Clear = 1,
-   Collect = 2,
-   CsiDispatch = 3,
-   EscDispatch = 4,
-   Execute = 5,
-   Hook = 6,
-   Ignore = 7,
-   OscEnd = 8,
-   OscPut = 9,
-   OscStart = 10,
-   Param = 11,
-   Print = 12,
-   Put = 13,
-   Unhook = 14,
-   BeginUtf8 = 15,
+    None = 0,
+    Clear = 1,
+    Collect = 2,
+    CsiDispatch = 3,
+    EscDispatch = 4,
+    Execute = 5,
+    Hook = 6,
+    Ignore = 7,
+    OscEnd = 8,
+    OscPut = 9,
+    OscStart = 10,
+    Param = 11,
+    Print = 12,
+    Put = 13,
+    Unhook = 14,
+    BeginUtf8 = 15,
 }
 
 /// Unpack a u8 into a State and Action
@@ -51,16 +57,15 @@ pub enum Action {
 pub fn unpack(delta: u8) -> (State, Action) {
     (
         // State is stored in bottom 4 bits
-        unsafe { ::core::mem::transmute(delta & 0x0f) },
-
+        unsafe { core::mem::transmute(delta & 0x0f) },
         // Action is stored in top 4 bits
-        unsafe { ::core::mem::transmute(delta >> 4) },
+        unsafe { core::mem::transmute(delta >> 4) },
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{State, Action, unpack};
+    use super::{unpack, Action, State};
     #[test]
     fn unpack_state_action() {
         match unpack(0xee) {

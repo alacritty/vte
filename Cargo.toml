@@ -1,13 +1,16 @@
 [package]
-name = "vte"
-version = "0.4.0"
-authors = ["Joe Wilm <joe@jwilm.com>"]
-license = "Apache-2.0 OR MIT"
+authors = ["Joe Wilm <joe@jwilm.com>", "Christian Duerr <contact@christianduerr.com>"]
 description = "Parser for implementing terminal emulators"
-keywords = ["ansi", "vte", "parser", "terminal"]
 repository = "https://github.com/jwilm/vte"
 documentation = "https://docs.rs/vte/"
+keywords = ["ansi", "vte", "parser", "terminal"]
+categories = ["parsing", "no-std"]
+exclude = ["/.travis.yml"]
 readme = "README.md"
+license = "Apache-2.0 OR MIT"
+version = "0.4.0"
+name = "vte"
+edition = "2018"
 
 [dependencies]
 arrayvec = { version = "0.5.1", default-features = false, optional = true }
@@ -16,3 +19,6 @@ utf8parse = { path = "utf8parse", version = "0.1.0" }
 [features]
 default = ["no_std"]
 no_std = ["arrayvec"]
+
+[workspace]
+members = ["utf8parse", "codegen"]
