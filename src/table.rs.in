@@ -4,13 +4,13 @@
 use definitions::Action;
 
 pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
-    State::Anywhere => {
+    Anywhere {
         0x18        => (Action::Execute, State::Ground),
         0x1a        => (Action::Execute, State::Ground),
         0x1b        => State::Escape,
     },
 
-    State::Ground => {
+    Ground {
         0x00...0x17 => Action::Execute,
         0x19        => Action::Execute,
         0x1c...0x1f => Action::Execute,
@@ -26,7 +26,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0xf0...0xf4 => (State::Utf8, Action::BeginUtf8),
     },
 
-    State::Escape => {
+    Escape {
         0x00...0x17 => Action::Execute,
         0x19        => Action::Execute,
         0x1c...0x1f => Action::Execute,
@@ -46,7 +46,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x5f        => State::SosPmApcString,
     },
 
-    State::EscapeIntermediate => {
+    EscapeIntermediate {
         0x00...0x17 => Action::Execute,
         0x19        => Action::Execute,
         0x1c...0x1f => Action::Execute,
@@ -55,7 +55,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x30...0x7e => (Action::EscDispatch, State::Ground)
     },
 
-    State::CsiEntry => {
+    CsiEntry {
         0x00...0x17 => Action::Execute,
         0x19        => Action::Execute,
         0x1c...0x1f => Action::Execute,
@@ -68,7 +68,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x40...0x7e => (Action::CsiDispatch, State::Ground)
     },
 
-    State::CsiIgnore => {
+    CsiIgnore {
         0x00...0x17 => Action::Execute,
         0x19        => Action::Execute,
         0x1c...0x1f => Action::Execute,
@@ -77,7 +77,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x40...0x7e => State::Ground,
     },
 
-    State::CsiParam => {
+    CsiParam {
         0x00...0x17 => Action::Execute,
         0x19        => Action::Execute,
         0x1c...0x1f => Action::Execute,
@@ -90,7 +90,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x40...0x7e => (Action::CsiDispatch, State::Ground)
     },
 
-    State::CsiIntermediate => {
+    CsiIntermediate {
         0x00...0x17 => Action::Execute,
         0x19        => Action::Execute,
         0x1c...0x1f => Action::Execute,
@@ -100,7 +100,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x40...0x7e => (Action::CsiDispatch, State::Ground),
     },
 
-    State::DcsEntry => {
+    DcsEntry {
         0x00...0x17 => Action::Ignore,
         0x19        => Action::Ignore,
         0x1c...0x1f => Action::Ignore,
@@ -113,7 +113,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x40...0x7e => State::DcsPassthrough
     },
 
-    State::DcsIntermediate => {
+    DcsIntermediate {
         0x00...0x17 => Action::Ignore,
         0x19        => Action::Ignore,
         0x1c...0x1f => Action::Ignore,
@@ -123,7 +123,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x40...0x7e => State::DcsPassthrough
     },
 
-    State::DcsIgnore => {
+    DcsIgnore {
         0x00...0x17 => Action::Ignore,
         0x19        => Action::Ignore,
         0x1c...0x1f => Action::Ignore,
@@ -131,7 +131,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x9c        => State::Ground
     },
 
-    State::DcsParam => {
+    DcsParam {
         0x00...0x17 => Action::Ignore,
         0x19        => Action::Ignore,
         0x1c...0x1f => Action::Ignore,
@@ -144,7 +144,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x40...0x7e => State::DcsPassthrough
     },
 
-    State::DcsPassthrough => {
+    DcsPassthrough {
         0x00...0x17 => Action::Put,
         0x19        => Action::Put,
         0x1c...0x1f => Action::Put,
@@ -153,7 +153,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x9c        => State::Ground,
     },
 
-    State::SosPmApcString => {
+    SosPmApcString {
         0x00...0x17 => Action::Ignore,
         0x19        => Action::Ignore,
         0x1c...0x1f => Action::Ignore,
@@ -161,7 +161,7 @@ pub static STATE_CHANGE: [[u8; 256]; 16] = vt_state_table! {
         0x9c       => State::Ground
     },
 
-    State::OscString => {
+    OscString {
         0x00...0x06 => Action::Ignore,
         0x07        => State::Ground,
         0x08...0x17 => Action::Ignore,

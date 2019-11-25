@@ -1,3 +1,5 @@
+use core::mem;
+
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub enum State {
@@ -46,6 +48,27 @@ pub enum Action {
     BeginUtf8 = 15,
 }
 
+impl State {
+    #[inline]
+    pub fn entry_action(&self) -> Action {
+        match self {
+            State::CsiEntry | State::DcsEntry | State::Escape => Action::Clear,
+            State::DcsPassthrough => Action::Hook,
+            State::OscString => Action::OscStart,
+            _ => Action::None,
+        }
+    }
+
+    #[inline]
+    pub fn exit_action(&self) -> Action {
+        match self {
+            State::DcsPassthrough => Action::Unhook,
+            State::OscString => Action::OscEnd,
+            _ => Action::None,
+        }
+    }
+}
+
 /// Unpack a u8 into a State and Action
 ///
 /// The implementation of this assumes that there are *precisely* 16 variants for both Action and
@@ -55,19 +78,45 @@ pub enum Action {
 /// Bad things will happen if those invariants are violated.
 #[inline(always)]
 pub fn unpack(delta: u8) -> (State, Action) {
-    (
-        // State is stored in bottom 4 bits
-        unsafe { core::mem::transmute(delta & 0x0f) },
-        // Action is stored in top 4 bits
-        unsafe { core::mem::transmute(delta >> 4) },
-    )
+    unsafe {
+        (
+            // State is stored in bottom 4 bits
+            mem::transmute(delta & 0x0f),
+            // Action is stored in top 4 bits
+            mem::transmute(delta >> 4),
+        )
+    }
+}
+
+#[inline(always)]
+pub const fn pack(state: State, action: Action) -> u8 {
+    (action as u8) << 4 | state as u8
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{unpack, Action, State};
+    use super::*;
+
     #[test]
     fn unpack_state_action() {
+        match unpack(0xee) {
+            (State::SosPmApcString, Action::Unhook) => (),
+            _ => panic!("unpack failed"),
+        }
+
+        match unpack(0x0f) {
+            (State::Utf8, Action::None) => (),
+            _ => panic!("unpack failed"),
+        }
+
+        match unpack(0xff) {
+            (State::Utf8, Action::BeginUtf8) => (),
+            _ => panic!("unpack failed"),
+        }
+    }
+
+    #[test]
+    fn pack_state_action() {
         match unpack(0xee) {
             (State::SosPmApcString, Action::Unhook) => (),
             _ => panic!("unpack failed"),
