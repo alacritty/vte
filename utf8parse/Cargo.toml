@@ -10,4 +10,6 @@ version = "0.1.1"
 name = "utf8parse"
 edition = "2018"
 
-[dependencies]
+[features]
+nightly = []
+default = []

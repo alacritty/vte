@@ -1,12 +1,31 @@
 //! Types supporting the UTF-8 parser
-#![allow(non_camel_case_types)]
-use core::mem;
+
+/// Action to take when receiving a byte
+#[derive(Debug, Copy, Clone)]
+pub enum Action {
+    /// Unexpected byte; sequence is invalid
+    InvalidSequence = 0,
+    /// Received valid 7-bit ASCII byte which can be directly emitted.
+    EmitByte = 1,
+    /// Set the bottom continuation byte
+    SetByte1 = 2,
+    /// Set the 2nd-from-last continuation byte
+    SetByte2 = 3,
+    /// Set the 2nd-from-last byte which is part of a two byte sequence
+    SetByte2Top = 4,
+    /// Set the 3rd-from-last continuation byte
+    SetByte3 = 5,
+    /// Set the 3rd-from-last byte which is part of a three byte sequence
+    SetByte3Top = 6,
+    /// Set the top byte of a four byte sequence.
+    SetByte4 = 7,
+}
 
 /// States the parser can be in.
 ///
 /// There is a state for each initial input of the 3 and 4 byte sequences since
 /// the following bytes are subject to different conditions than a tail byte.
-#[allow(dead_code)]
+#[allow(non_camel_case_types)]
 #[derive(Debug, Copy, Clone)]
 pub enum State {
     /// Ground state; expect anything
@@ -33,50 +52,54 @@ impl Default for State {
     }
 }
 
-/// Action to take when receiving a byte
-#[allow(dead_code)]
-#[derive(Debug, Copy, Clone)]
-pub enum Action {
-    /// Unexpected byte; sequence is invalid
-    InvalidSequence = 0,
-    /// Received valid 7-bit ASCII byte which can be directly emitted.
-    EmitByte = 1,
-    /// Set the bottom continuation byte
-    SetByte1 = 2,
-    /// Set the 2nd-from-last continuation byte
-    SetByte2 = 3,
-    /// Set the 2nd-from-last byte which is part of a two byte sequence
-    SetByte2Top = 4,
-    /// Set the 3rd-from-last continuation byte
-    SetByte3 = 5,
-    /// Set the 3rd-from-last byte which is part of a three byte sequence
-    SetByte3Top = 6,
-    /// Set the top byte of a four byte sequence.
-    SetByte4 = 7,
-}
-
-/// Convert a state and action to a u8
-///
-/// State will be the bottom 4 bits and action the top 4
-#[inline]
-#[allow(dead_code)]
-pub fn pack(state: State, action: Action) -> u8 {
-    ((action as u8) << 4) | (state as u8)
-}
-
-/// Convert a u8 to a state and action
-///
-/// # Unsafety
-///
-/// If this function is called with a byte that wasn't encoded with the `pack`
-/// function in this module, there is no guarantee that a valid state and action
-/// can be produced.
-#[inline]
-pub unsafe fn unpack(val: u8) -> (State, Action) {
-    (
-        // State is stored in bottom 4 bits
-        mem::transmute(val & 0x0f),
-        // Action is stored in top 4 bits
-        mem::transmute(val >> 4),
-    )
+impl State {
+    /// Advance the parser state.
+    ///
+    /// This takes the current state and input byte into consideration, to determine the next state
+    /// and any action that should be taken.
+    #[inline]
+    pub fn advance(&self, byte: u8) -> (State, Action) {
+        match self {
+            State::Ground => match byte {
+                0x00..=0x7f => (State::Ground, Action::EmitByte),
+                0xc2..=0xdf => (State::Tail1, Action::SetByte2Top),
+                0xe0 => (State::U3_2_e0, Action::SetByte3Top),
+                0xe1..=0xec => (State::Tail2, Action::SetByte3Top),
+                0xed => (State::U3_2_ed, Action::SetByte3Top),
+                0xee..=0xef => (State::Tail2, Action::SetByte3Top),
+                0xf0 => (State::Utf8_4_3_f0, Action::SetByte4),
+                0xf1..=0xf3 => (State::Tail3, Action::SetByte4),
+                0xf4 => (State::Utf8_4_3_f4, Action::SetByte4),
+                _ => (State::Ground, Action::InvalidSequence),
+            },
+            State::U3_2_e0 => match byte {
+                0xa0..=0xbf => (State::Tail1, Action::SetByte2),
+                _ => (State::Ground, Action::InvalidSequence),
+            },
+            State::U3_2_ed => match byte {
+                0x80..=0x9f => (State::Tail1, Action::SetByte2),
+                _ => (State::Ground, Action::InvalidSequence),
+            },
+            State::Utf8_4_3_f0 => match byte {
+                0x90..=0xbf => (State::Tail2, Action::SetByte3),
+                _ => (State::Ground, Action::InvalidSequence),
+            },
+            State::Utf8_4_3_f4 => match byte {
+                0x80..=0x8f => (State::Tail2, Action::SetByte3),
+                _ => (State::Ground, Action::InvalidSequence),
+            },
+            State::Tail3 => match byte {
+                0x80..=0xbf => (State::Tail2, Action::SetByte3),
+                _ => (State::Ground, Action::InvalidSequence),
+            },
+            State::Tail2 => match byte {
+                0x80..=0xbf => (State::Tail1, Action::SetByte2),
+                _ => (State::Ground, Action::InvalidSequence),
+            },
+            State::Tail1 => match byte {
+                0x80..=0xbf => (State::Ground, Action::SetByte1),
+                _ => (State::Ground, Action::InvalidSequence),
+            },
+        }
+    }
 }

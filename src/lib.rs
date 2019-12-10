@@ -30,6 +30,7 @@
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
+#![cfg_attr(all(feature = "nightly", test), feature(test))]
 #![cfg_attr(feature = "no_std", no_std)]
 
 use core::mem::MaybeUninit;
@@ -42,21 +43,6 @@ mod definitions;
 mod table;
 
 use definitions::{unpack, Action, State};
-use table::{ENTRY_ACTIONS, EXIT_ACTIONS, STATE_CHANGE};
-
-impl State {
-    /// Get exit action for this state
-    #[inline(always)]
-    pub fn exit_action(self) -> Action {
-        unsafe { *EXIT_ACTIONS.get_unchecked(self as usize) }
-    }
-
-    /// Get entry action for this state
-    #[inline(always)]
-    pub fn entry_action(self) -> Action {
-        unsafe { *ENTRY_ACTIONS.get_unchecked(self as usize) }
-    }
-}
 
 const MAX_INTERMEDIATES: usize = 2;
 #[cfg(any(feature = "no_std", test))]
@@ -129,10 +115,10 @@ impl Parser {
 
         // Handle state changes in the anywhere state before evaluating changes
         // for current state.
-        let mut change = STATE_CHANGE[State::Anywhere as usize][byte as usize];
+        let mut change = table::STATE_CHANGES[State::Anywhere as usize][byte as usize];
 
         if change == 0 {
-            change = STATE_CHANGE[self.state as usize][byte as usize];
+            change = table::STATE_CHANGES[self.state as usize][byte as usize];
         }
 
         // Unpack into a state and action
@@ -737,5 +723,62 @@ mod tests {
 
         #[cfg(feature = "no_std")]
         assert_eq!(dispatcher.params[1].len(), MAX_OSC_RAW - dispatcher.params[0].len());
+    }
+}
+
+#[cfg(all(feature = "nightly", test))]
+mod bench {
+    extern crate std;
+    extern crate test;
+
+    use super::*;
+
+    use test::{black_box, Bencher};
+
+    static VTE_DEMO: &[u8] = include_bytes!("../tests/demo.vte");
+
+    struct BenchDispatcher;
+    impl Perform for BenchDispatcher {
+        fn print(&mut self, c: char) {
+            black_box(c);
+        }
+
+        fn execute(&mut self, byte: u8) {
+            black_box(byte);
+        }
+
+        fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
+            black_box((params, intermediates, ignore, c));
+        }
+
+        fn put(&mut self, byte: u8) {
+            black_box(byte);
+        }
+
+        fn unhook(&mut self) {}
+
+        fn osc_dispatch(&mut self, params: &[&[u8]]) {
+            black_box(params);
+        }
+
+        fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
+            black_box((params, intermediates, ignore, c));
+        }
+
+        fn esc_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8) {
+            black_box((params, intermediates, ignore, byte));
+        }
+    }
+
+    #[bench]
+    fn testfile(b: &mut Bencher) {
+        b.iter(|| {
+            let mut dispatcher = BenchDispatcher;
+            let mut parser = Parser::new();
+
+            for byte in VTE_DEMO {
+                parser.advance(&mut dispatcher, *byte);
+            }
+        });
     }
 }
