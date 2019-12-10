@@ -6,7 +6,7 @@ repository = "https://github.com/jwilm/vte"
 keywords = ["utf8", "parse", "table"]
 categories = ["parsing", "no-std"]
 license = "Apache-2.0 OR MIT"
-version = "0.1.1"
+version = "0.1.2"
 name = "utf8parse"
 edition = "2018"
 
