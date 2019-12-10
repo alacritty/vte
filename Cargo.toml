@@ -13,9 +13,9 @@ name = "vte"
 edition = "2018"
 
 [dependencies]
-generate_state_changes = { version = "0.1.0", path = "generate_state_changes" }
+vte_generate_state_changes = { version = "0.1.0", path = "vte_generate_state_changes" }
 arrayvec = { version = "0.5.1", default-features = false, optional = true }
-utf8parse = { path = "utf8parse", version = "0.2.0" }
+utf8parse = { version = "0.2.0", path = "utf8parse" }
 
 [features]
 default = ["no_std"]
@@ -23,4 +23,4 @@ no_std = ["arrayvec"]
 nightly = ["utf8parse/nightly"]
 
 [workspace]
-members = ["utf8parse", "generate_state_changes"]
+members = ["utf8parse", "vte_generate_state_changes"]

@@ -2,7 +2,7 @@
 /// character in the pty stream.
 use crate::definitions::{pack, Action, State};
 
-use generate_state_changes::generate_state_changes;
+use vte_generate_state_changes::generate_state_changes;
 
 // Generate state changes at compile-time
 pub static STATE_CHANGES: [[u8; 256]; 16] = state_changes();
