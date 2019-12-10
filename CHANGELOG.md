@@ -1,6 +1,12 @@
 CHANGELOG
 =========
 
+## 0.5.0
+
+- Support for dynamically sized escape buffers without feature `no_std`
+- Improved UTF8 parser performance
+- Migrate to Rust 2018
+
 ## 0.4.0
 
 - Fix handling of DCS escapes
