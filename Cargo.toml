@@ -15,7 +15,7 @@ edition = "2018"
 [dependencies]
 generate_state_changes = { version = "0.1.0", path = "generate_state_changes" }
 arrayvec = { version = "0.5.1", default-features = false, optional = true }
-utf8parse = { path = "utf8parse", version = "0.1.0" }
+utf8parse = { path = "utf8parse", version = "0.2.0" }
 
 [features]
 default = ["no_std"]
