@@ -613,6 +613,7 @@ mod tests {
         assert!(dispatcher.dispatched_csi);
         assert_eq!(dispatcher.params.len(), 1);
         assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
+        assert!(!dispatcher.ignore);
     }
 
     #[test]
