@@ -450,6 +450,7 @@ mod tests {
     #[derive(Default)]
     struct CsiDispatcher {
         dispatched_csi: bool,
+        ignore: bool,
         params: Vec<Vec<i64>>,
     }
 
@@ -466,8 +467,9 @@ mod tests {
 
         fn osc_dispatch(&mut self, _params: &[&[u8]]) {}
 
-        fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {
+        fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], ignore: bool, _c: char) {
             self.dispatched_csi = true;
+            self.ignore = ignore;
             self.params.push(params.to_vec());
         }
 
@@ -591,22 +593,53 @@ mod tests {
     fn parse_csi_max_params() {
         use crate::MAX_PARAMS;
 
-        static INPUT: &[u8] = b"\x1b[1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;p";
+        // This will build a list of repeating '1;'s
+        // The length is MAX_PARAMS - 1 because the last semicolon is interpreted
+        // as an implicit zero, making the total number of parameters MAX_PARAMS
+        let params = std::iter::repeat("1;").take(MAX_PARAMS - 1).collect::<std::string::String>();
+        let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
         // Create dispatcher and check state
         let mut dispatcher = CsiDispatcher::default();
         assert!(!dispatcher.dispatched_csi);
 
-        // Run parser using OSC_BYTES
+        // Run parser using INPUT
         let mut parser = Parser::new();
-        for byte in INPUT {
-            parser.advance(&mut dispatcher, *byte);
+        for byte in input {
+            parser.advance(&mut dispatcher, byte);
         }
 
         // Check that flag is set and thus csi_dispatch assertions ran.
         assert!(dispatcher.dispatched_csi);
         assert_eq!(dispatcher.params.len(), 1);
         assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
+    }
+
+    #[test]
+    fn parse_csi_params_ignore_long_params() {
+        use crate::MAX_PARAMS;
+
+        // This will build a list of repeating '1;'s
+        // The length is MAX_PARAMS because the last semicolon is interpreted
+        // as an implicit zero, making the total number of parameters MAX_PARAMS + 1
+        let params = std::iter::repeat("1;").take(MAX_PARAMS).collect::<std::string::String>();
+        let input = format!("\x1b[{}p", &params[..]).into_bytes();
+
+        // Create dispatcher and check state
+        let mut dispatcher = CsiDispatcher::default();
+        assert!(!dispatcher.dispatched_csi);
+
+        // Run parser using INPUT
+        let mut parser = Parser::new();
+        for byte in input {
+            parser.advance(&mut dispatcher, byte);
+        }
+
+        // Check that flag is set and thus csi_dispatch assertions ran.
+        assert!(dispatcher.dispatched_csi);
+        assert_eq!(dispatcher.params.len(), 1);
+        assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
+        assert!(dispatcher.ignore);
     }
 
     #[test]
