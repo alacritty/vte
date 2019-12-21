@@ -272,8 +272,12 @@ impl Parser {
             },
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
-                self.params[self.num_params] = self.param;
-                self.num_params += 1;
+                if self.num_params == MAX_PARAMS {
+                    self.ignoring = true;
+                } else {
+                    self.params[self.num_params] = self.param;
+                    self.num_params += 1;
+                }
 
                 performer.csi_dispatch(
                     self.params(),
@@ -298,14 +302,15 @@ impl Parser {
                 }
             },
             Action::Param => {
+                // Completed a param
+                let idx = self.num_params;
+
+                if idx == MAX_PARAMS {
+                    self.ignoring = true;
+                    return;
+                }
+
                 if byte == b';' {
-                    // Completed a param
-                    let idx = self.num_params;
-
-                    if idx == MAX_PARAMS - 1 {
-                        return;
-                    }
-
                     self.params[idx] = self.param;
                     self.param = 0;
                     self.num_params += 1;
