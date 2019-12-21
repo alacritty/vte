@@ -375,8 +375,8 @@ pub trait Perform {
 
     /// A final character has arrived for a CSI sequence
     ///
-    /// The `ignore` flag indicates that more than two intermediates arrived and
-    /// subsequent characters were ignored.
+    /// The `ignore` flag indicates that either more than two intermediates arrived
+    /// or the number of parameters exceeded MAX_PARAMS, and subsequent characters were ignored.
     fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, _: char);
 
     /// The final character of an escape sequence has arrived.
