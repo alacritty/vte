@@ -376,7 +376,8 @@ pub trait Perform {
     /// A final character has arrived for a CSI sequence
     ///
     /// The `ignore` flag indicates that either more than two intermediates arrived
-    /// or the number of parameters exceeded MAX_PARAMS, and subsequent characters were ignored.
+    /// or the number of parameters exceeded the maximum supported length,
+    /// and subsequent characters were ignored.
     fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, _: char);
 
     /// The final character of an escape sequence has arrived.
@@ -395,6 +396,7 @@ mod tests {
     use super::*;
 
     use core::i64;
+    use std::string::String;
     use std::vec::Vec;
 
     static OSC_BYTES: &[u8] = &[
@@ -567,8 +569,6 @@ mod tests {
 
     #[test]
     fn parse_osc_max_params() {
-        use crate::MAX_PARAMS;
-
         static INPUT: &[u8] = b"\x1b];;;;;;;;;;;;;;;;;\x1b";
 
         // Create dispatcher and check state
@@ -591,12 +591,10 @@ mod tests {
 
     #[test]
     fn parse_csi_max_params() {
-        use crate::MAX_PARAMS;
-
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS - 1 because the last semicolon is interpreted
         // as an implicit zero, making the total number of parameters MAX_PARAMS
-        let params = std::iter::repeat("1;").take(MAX_PARAMS - 1).collect::<std::string::String>();
+        let params = std::iter::repeat("1;").take(MAX_PARAMS - 1).collect::<String>();
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
         // Create dispatcher and check state
@@ -618,12 +616,10 @@ mod tests {
 
     #[test]
     fn parse_csi_params_ignore_long_params() {
-        use crate::MAX_PARAMS;
-
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS because the last semicolon is interpreted
         // as an implicit zero, making the total number of parameters MAX_PARAMS + 1
-        let params = std::iter::repeat("1;").take(MAX_PARAMS).collect::<std::string::String>();
+        let params = std::iter::repeat("1;").take(MAX_PARAMS).collect::<String>();
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
         // Create dispatcher and check state
