@@ -272,8 +272,12 @@ impl Parser {
             },
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
-                self.params[self.num_params] = self.param;
-                self.num_params += 1;
+                if self.num_params == MAX_PARAMS {
+                    self.ignoring = true;
+                } else {
+                    self.params[self.num_params] = self.param;
+                    self.num_params += 1;
+                }
 
                 performer.csi_dispatch(
                     self.params(),
@@ -298,14 +302,15 @@ impl Parser {
                 }
             },
             Action::Param => {
+                // Completed a param
+                let idx = self.num_params;
+
+                if idx == MAX_PARAMS {
+                    self.ignoring = true;
+                    return;
+                }
+
                 if byte == b';' {
-                    // Completed a param
-                    let idx = self.num_params;
-
-                    if idx == MAX_PARAMS - 1 {
-                        return;
-                    }
-
                     self.params[idx] = self.param;
                     self.param = 0;
                     self.num_params += 1;
@@ -370,8 +375,9 @@ pub trait Perform {
 
     /// A final character has arrived for a CSI sequence
     ///
-    /// The `ignore` flag indicates that more than two intermediates arrived and
-    /// subsequent characters were ignored.
+    /// The `ignore` flag indicates that either more than two intermediates arrived
+    /// or the number of parameters exceeded the maximum supported length,
+    /// and subsequent characters were ignored.
     fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, _: char);
 
     /// The final character of an escape sequence has arrived.
@@ -390,6 +396,7 @@ mod tests {
     use super::*;
 
     use core::i64;
+    use std::string::String;
     use std::vec::Vec;
 
     static OSC_BYTES: &[u8] = &[
@@ -445,6 +452,7 @@ mod tests {
     #[derive(Default)]
     struct CsiDispatcher {
         dispatched_csi: bool,
+        ignore: bool,
         params: Vec<Vec<i64>>,
     }
 
@@ -461,8 +469,9 @@ mod tests {
 
         fn osc_dispatch(&mut self, _params: &[&[u8]]) {}
 
-        fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], _ignore: bool, _c: char) {
+        fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], ignore: bool, _c: char) {
             self.dispatched_csi = true;
+            self.ignore = ignore;
             self.params.push(params.to_vec());
         }
 
@@ -560,8 +569,6 @@ mod tests {
 
     #[test]
     fn parse_osc_max_params() {
-        use crate::MAX_PARAMS;
-
         static INPUT: &[u8] = b"\x1b];;;;;;;;;;;;;;;;;\x1b";
 
         // Create dispatcher and check state
@@ -584,24 +591,52 @@ mod tests {
 
     #[test]
     fn parse_csi_max_params() {
-        use crate::MAX_PARAMS;
-
-        static INPUT: &[u8] = b"\x1b[1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;p";
+        // This will build a list of repeating '1;'s
+        // The length is MAX_PARAMS - 1 because the last semicolon is interpreted
+        // as an implicit zero, making the total number of parameters MAX_PARAMS
+        let params = std::iter::repeat("1;").take(MAX_PARAMS - 1).collect::<String>();
+        let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
         // Create dispatcher and check state
         let mut dispatcher = CsiDispatcher::default();
         assert!(!dispatcher.dispatched_csi);
 
-        // Run parser using OSC_BYTES
+        // Run parser using INPUT
         let mut parser = Parser::new();
-        for byte in INPUT {
-            parser.advance(&mut dispatcher, *byte);
+        for byte in input {
+            parser.advance(&mut dispatcher, byte);
         }
 
         // Check that flag is set and thus csi_dispatch assertions ran.
         assert!(dispatcher.dispatched_csi);
         assert_eq!(dispatcher.params.len(), 1);
         assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
+        assert!(!dispatcher.ignore);
+    }
+
+    #[test]
+    fn parse_csi_params_ignore_long_params() {
+        // This will build a list of repeating '1;'s
+        // The length is MAX_PARAMS because the last semicolon is interpreted
+        // as an implicit zero, making the total number of parameters MAX_PARAMS + 1
+        let params = std::iter::repeat("1;").take(MAX_PARAMS).collect::<String>();
+        let input = format!("\x1b[{}p", &params[..]).into_bytes();
+
+        // Create dispatcher and check state
+        let mut dispatcher = CsiDispatcher::default();
+        assert!(!dispatcher.dispatched_csi);
+
+        // Run parser using INPUT
+        let mut parser = Parser::new();
+        for byte in input {
+            parser.advance(&mut dispatcher, byte);
+        }
+
+        // Check that flag is set and thus csi_dispatch assertions ran.
+        assert!(dispatcher.dispatched_csi);
+        assert_eq!(dispatcher.params.len(), 1);
+        assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
+        assert!(dispatcher.ignore);
     }
 
     #[test]
