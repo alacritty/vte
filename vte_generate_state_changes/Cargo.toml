@@ -4,7 +4,7 @@ description = "Proc macro for generating VTE state changes"
 repository = "https://github.com/jwilm/vte"
 name = "vte_generate_state_changes"
 license = "Apache-2.0 OR MIT"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2018"
 
 [lib]
