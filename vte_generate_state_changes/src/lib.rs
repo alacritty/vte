@@ -137,7 +137,7 @@ fn optional_punct(iter: &mut Peekable<token_stream::IntoIter>, c: char) -> bool 
 /// Panics if the punctuation does not match.
 fn expect_punct(iter: &mut impl Iterator<Item = TokenTree>, c: char) {
     match iter.next() {
-        Some(Punct(punct)) if punct.as_char() == c => (),
+        Some(Punct(ref punct)) if punct.as_char() == c => (),
         token => panic!("Expected punctuation '{}', but got {:?}", c, token),
     }
 }
