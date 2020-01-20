@@ -1,7 +1,7 @@
 vte
 ===
 
-[![Build Status](https://travis-ci.org/jwilm/vte.svg?branch=master)](https://travis-ci.org/jwilm/vte)
+[![Build Status](https://travis-ci.org/alacritty/vte.svg?branch=master)](https://travis-ci.org/alacritty/vte)
 [![Crates.io Version](https://img.shields.io/crates/v/vte.svg)](https://crates.io/crates/vte/)
 
 Parser for implementing virtual terminal emulators in Rust.
