@@ -50,7 +50,7 @@ pub enum Action {
 
 impl State {
     #[inline]
-    pub fn entry_action(&self) -> Action {
+    pub fn entry_action(self) -> Action {
         match self {
             State::CsiEntry | State::DcsEntry | State::Escape => Action::Clear,
             State::DcsPassthrough => Action::Hook,
@@ -60,7 +60,7 @@ impl State {
     }
 
     #[inline]
-    pub fn exit_action(&self) -> Action {
+    pub fn exit_action(self) -> Action {
         match self {
             State::DcsPassthrough => Action::Unhook,
             State::OscString => Action::OscEnd,

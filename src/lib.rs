@@ -30,6 +30,7 @@
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
+#![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use, clippy::wrong_pub_self_convention)]
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
 #![cfg_attr(feature = "no_std", no_std)]
 
@@ -179,7 +180,7 @@ impl Parser {
     ///
     /// The aliasing is needed here for multiple slices into self.osc_raw
     #[inline]
-    fn osc_dispatch<P: Perform>(&self, performer: &mut P) {
+    fn osc_dispatch<P: Perform>(&self, performer: &mut P, bell_terminated: bool) {
         let mut slices: [MaybeUninit<&[u8]>; MAX_PARAMS] =
             unsafe { MaybeUninit::uninit().assume_init() };
 
@@ -191,7 +192,7 @@ impl Parser {
         unsafe {
             let num_params = self.osc_num_params;
             let params = &slices[..num_params] as *const [MaybeUninit<&[u8]>] as *const [&[u8]];
-            performer.osc_dispatch(&*params);
+            performer.osc_dispatch(&*params, bell_terminated);
         }
     }
 
@@ -268,7 +269,7 @@ impl Parser {
                         self.osc_num_params += 1;
                     },
                 }
-                self.osc_dispatch(performer);
+                self.osc_dispatch(performer, byte == 0x7);
             },
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
@@ -343,13 +344,13 @@ impl Parser {
 /// referenced if something isn't clear. If the site disappears at some point in
 /// the future, consider checking archive.org.
 pub trait Perform {
-    /// Draw a character to the screen and update states
+    /// Draw a character to the screen and update states.
     fn print(&mut self, _: char);
 
-    /// Execute a C0 or C1 control function
+    /// Execute a C0 or C1 control function.
     fn execute(&mut self, byte: u8);
 
-    /// Invoked when a final character arrives in first part of device control string
+    /// Invoked when a final character arrives in first part of device control string.
     ///
     /// The control function should be determined from the private marker, final character, and
     /// execute with a parameter list. A handler should be selected for remaining characters in the
@@ -358,27 +359,27 @@ pub trait Perform {
     ///
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
-    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, _: char);
+    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, action: char);
 
     /// Pass bytes as part of a device control string to the handle chosen in `hook`. C0 controls
     /// will also be passed to the handler.
     fn put(&mut self, byte: u8);
 
-    /// Called when a device control string is terminated
+    /// Called when a device control string is terminated.
     ///
     /// The previously selected handler should be notified that the DCS has
     /// terminated.
     fn unhook(&mut self);
 
-    /// Dispatch an operating system command
-    fn osc_dispatch(&mut self, params: &[&[u8]]);
+    /// Dispatch an operating system command.
+    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool);
 
     /// A final character has arrived for a CSI sequence
     ///
     /// The `ignore` flag indicates that either more than two intermediates arrived
     /// or the number of parameters exceeded the maximum supported length,
     /// and subsequent characters were ignored.
-    fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, _: char);
+    fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, action: char);
 
     /// The final character of an escape sequence has arrived.
     ///
@@ -409,6 +410,7 @@ mod tests {
     #[derive(Default)]
     struct OscDispatcher {
         dispatched_osc: bool,
+        bell_terminated: bool,
         params: Vec<Vec<u8>>,
     }
 
@@ -424,9 +426,10 @@ mod tests {
 
         fn unhook(&mut self) {}
 
-        fn osc_dispatch(&mut self, params: &[&[u8]]) {
+        fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
             // Set a flag so we know these assertions all run
             self.dispatched_osc = true;
+            self.bell_terminated = bell_terminated;
             self.params = params.iter().map(|p| p.to_vec()).collect();
         }
 
@@ -467,7 +470,7 @@ mod tests {
 
         fn unhook(&mut self) {}
 
-        fn osc_dispatch(&mut self, _params: &[&[u8]]) {}
+        fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {}
 
         fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], ignore: bool, _c: char) {
             self.dispatched_csi = true;
@@ -511,7 +514,7 @@ mod tests {
             self.dispatched_dcs = true;
         }
 
-        fn osc_dispatch(&mut self, _params: &[&[u8]]) {}
+        fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {}
 
         fn csi_dispatch(
             &mut self,
@@ -534,12 +537,9 @@ mod tests {
 
     #[test]
     fn parse_osc() {
-        // Create dispatcher and check state
         let mut dispatcher = OscDispatcher::default();
-        assert_eq!(dispatcher.dispatched_osc, false);
-
-        // Run parser using OSC_BYTES
         let mut parser = Parser::new();
+
         for byte in OSC_BYTES {
             parser.advance(&mut dispatcher, *byte);
         }
@@ -553,12 +553,9 @@ mod tests {
 
     #[test]
     fn parse_empty_osc() {
-        // Create dispatcher and check state
         let mut dispatcher = OscDispatcher::default();
-        assert_eq!(dispatcher.dispatched_osc, false);
-
-        // Run parser using OSC_BYTES
         let mut parser = Parser::new();
+
         for byte in &[0x1b, 0x5d, 0x07] {
             parser.advance(&mut dispatcher, *byte);
         }
@@ -570,13 +567,9 @@ mod tests {
     #[test]
     fn parse_osc_max_params() {
         static INPUT: &[u8] = b"\x1b];;;;;;;;;;;;;;;;;\x1b";
-
-        // Create dispatcher and check state
         let mut dispatcher = OscDispatcher::default();
-        assert_eq!(dispatcher.dispatched_osc, false);
-
-        // Run parser using OSC_BYTES
         let mut parser = Parser::new();
+
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
@@ -590,6 +583,48 @@ mod tests {
     }
 
     #[test]
+    fn osc_bell_terminated() {
+        static INPUT: &[u8] = b"\x1b]11;ff/00/ff\x07";
+        let mut dispatcher = OscDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert!(dispatcher.dispatched_osc);
+        assert!(dispatcher.bell_terminated);
+    }
+
+    #[test]
+    fn osc_c1_st_terminated() {
+        static INPUT: &[u8] = b"\x1b]11;ff/00/ff\x9c";
+        let mut dispatcher = OscDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert!(dispatcher.dispatched_osc);
+        assert!(!dispatcher.bell_terminated);
+    }
+
+    #[test]
+    fn osc_c0_st_terminated() {
+        static INPUT: &[u8] = b"\x1b]11;ff/00/ff\x1b\\";
+        let mut dispatcher = OscDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert!(dispatcher.dispatched_osc);
+        assert!(!dispatcher.bell_terminated);
+    }
+
+    #[test]
     fn parse_csi_max_params() {
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS - 1 because the last semicolon is interpreted
@@ -597,12 +632,9 @@ mod tests {
         let params = std::iter::repeat("1;").take(MAX_PARAMS - 1).collect::<String>();
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
-        // Create dispatcher and check state
         let mut dispatcher = CsiDispatcher::default();
-        assert!(!dispatcher.dispatched_csi);
-
-        // Run parser using INPUT
         let mut parser = Parser::new();
+
         for byte in input {
             parser.advance(&mut dispatcher, byte);
         }
@@ -622,12 +654,9 @@ mod tests {
         let params = std::iter::repeat("1;").take(MAX_PARAMS).collect::<String>();
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
-        // Create dispatcher and check state
         let mut dispatcher = CsiDispatcher::default();
-        assert!(!dispatcher.dispatched_csi);
-
-        // Run parser using INPUT
         let mut parser = Parser::new();
+
         for byte in input {
             parser.advance(&mut dispatcher, byte);
         }
@@ -656,9 +685,8 @@ mod tests {
     fn parse_semi_set_underline() {
         // Create dispatcher and check state
         let mut dispatcher = CsiDispatcher::default();
-
-        // Run parser using OSC_BYTES
         let mut parser = Parser::new();
+
         for byte in b"\x1b[;4m" {
             parser.advance(&mut dispatcher, *byte);
         }
@@ -671,10 +699,9 @@ mod tests {
     fn parse_long_csi_param() {
         // The important part is the parameter, which is (i64::MAX + 1)
         static INPUT: &[u8] = b"\x1b[9223372036854775808m";
-
         let mut dispatcher = CsiDispatcher::default();
-
         let mut parser = Parser::new();
+
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
@@ -689,12 +716,9 @@ mod tests {
             0x5f, 0x28, 0xe3, 0x83, 0x84, 0x29, 0x5f, 0x2f, 0xc2, 0xaf, 0x27, 0x20, 0x26, 0x26,
             0x20, 0x73, 0x6c, 0x65, 0x65, 0x70, 0x20, 0x31, 0x07,
         ];
-
-        // Create dispatcher and check state
-        let mut dispatcher = OscDispatcher { params: vec![], dispatched_osc: false };
-
-        // Run parser using OSC_BYTES
+        let mut dispatcher = OscDispatcher::default();
         let mut parser = Parser::new();
+
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
@@ -708,12 +732,9 @@ mod tests {
     fn parse_dcs() {
         static INPUT: &[u8] =
             &[0x1b, 0x50, 0x30, 0x3b, 0x31, 0x7c, 0x31, 0x37, 0x2f, 0x61, 0x62, 0x9c];
-
-        // Create dispatcher and check state
         let mut dispatcher = DcsDispatcher::default();
-
-        // Run parser using OSC_BYTES
         let mut parser = Parser::new();
+
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
