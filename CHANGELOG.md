@@ -1,9 +1,10 @@
 CHANGELOG
 =========
 
-## Unreleased
+## 0.6.0
 
 - Fix build failure on Rust 1.36.0
+- Add `bool_terminated` parameter to osc dispatch
 
 ## 0.5.0
 
