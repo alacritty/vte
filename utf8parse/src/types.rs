@@ -58,7 +58,7 @@ impl State {
     /// This takes the current state and input byte into consideration, to determine the next state
     /// and any action that should be taken.
     #[inline]
-    pub fn advance(&self, byte: u8) -> (State, Action) {
+    pub fn advance(self, byte: u8) -> (State, Action) {
         match self {
             State::Ground => match byte {
                 0x00..=0x7f => (State::Ground, Action::EmitByte),
