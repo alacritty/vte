@@ -30,8 +30,8 @@ impl vte::Perform for Log {
         println!("[unhook]");
     }
 
-    fn osc_dispatch(&mut self, params: &[&[u8]]) {
-        println!("[osc_dispatch] params={:?}", params);
+    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+        println!("[osc_dispatch] params={:?} bell_terminated={}", params, bell_terminated);
     }
 
     fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
