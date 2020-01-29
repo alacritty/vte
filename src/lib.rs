@@ -180,7 +180,7 @@ impl Parser {
     ///
     /// The aliasing is needed here for multiple slices into self.osc_raw
     #[inline]
-    fn osc_dispatch<P: Perform>(&self, performer: &mut P, bell_terminated: bool) {
+    fn osc_dispatch<P: Perform>(&self, performer: &mut P, byte: u8) {
         let mut slices: [MaybeUninit<&[u8]>; MAX_PARAMS] =
             unsafe { MaybeUninit::uninit().assume_init() };
 
@@ -192,7 +192,7 @@ impl Parser {
         unsafe {
             let num_params = self.osc_num_params;
             let params = &slices[..num_params] as *const [MaybeUninit<&[u8]>] as *const [&[u8]];
-            performer.osc_dispatch(&*params, bell_terminated);
+            performer.osc_dispatch(&*params, byte == 0x07);
         }
     }
 
@@ -269,7 +269,7 @@ impl Parser {
                         self.osc_num_params += 1;
                     },
                 }
-                self.osc_dispatch(performer, byte == 0x7);
+                self.osc_dispatch(performer, byte);
             },
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
