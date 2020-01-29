@@ -813,8 +813,8 @@ mod bench {
 
         fn unhook(&mut self) {}
 
-        fn osc_dispatch(&mut self, params: &[&[u8]]) {
-            black_box(params);
+        fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+            black_box((params, bell_terminated));
         }
 
         fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
