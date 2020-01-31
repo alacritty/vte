@@ -41,10 +41,10 @@ impl vte::Perform for Log {
         );
     }
 
-    fn esc_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8) {
+    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
         println!(
-            "[esc_dispatch] params={:?}, intermediates={:?}, ignore={:?}, byte={:02x}",
-            params, intermediates, ignore, byte
+            "[esc_dispatch] intermediates={:?}, ignore={:?}, byte={:02x}",
+            intermediates, ignore, byte
         );
     }
 }

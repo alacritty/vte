@@ -287,9 +287,7 @@ impl Parser {
                     byte as char,
                 );
             },
-            Action::EscDispatch => {
-                performer.esc_dispatch(self.params(), self.intermediates(), self.ignoring, byte);
-            },
+            Action::EscDispatch => performer.esc_dispatch(self.intermediates(), self.ignoring, byte),
             Action::Ignore | Action::None => (),
             Action::Collect => {
                 if self.intermediate_idx == MAX_INTERMEDIATES {
@@ -382,7 +380,7 @@ pub trait Perform {
     ///
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
-    fn esc_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8);
+    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8);
 }
 
 #[cfg(all(test, feature = "no_std"))]
@@ -415,11 +413,11 @@ mod tests {
     impl Perform for OscDispatcher {
         fn print(&mut self, _: char) {}
 
-        fn execute(&mut self, _byte: u8) {}
+        fn execute(&mut self, _: u8) {}
 
-        fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _: char) {}
+        fn hook(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
 
-        fn put(&mut self, _byte: u8) {}
+        fn put(&mut self, _: u8) {}
 
         fn unhook(&mut self) {}
 
@@ -430,65 +428,48 @@ mod tests {
             self.params = params.iter().map(|p| p.to_vec()).collect();
         }
 
-        fn csi_dispatch(
-            &mut self,
-            _params: &[i64],
-            _intermediates: &[u8],
-            _ignore: bool,
-            _c: char,
-        ) {
-        }
+        fn csi_dispatch(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
 
-        fn esc_dispatch(
-            &mut self,
-            _params: &[i64],
-            _intermediates: &[u8],
-            _ignore: bool,
-            _byte: u8,
-        ) {
-        }
+        fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
     }
 
     #[derive(Default)]
     struct CsiDispatcher {
         dispatched_csi: bool,
         ignore: bool,
-        params: Vec<Vec<i64>>,
+        params: Vec<i64>,
+        intermediates: Vec<u8>,
     }
 
     impl Perform for CsiDispatcher {
         fn print(&mut self, _: char) {}
 
-        fn execute(&mut self, _byte: u8) {}
+        fn execute(&mut self, _: u8) {}
 
-        fn hook(&mut self, _params: &[i64], _intermediates: &[u8], _ignore: bool, _: char) {}
+        fn hook(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
 
-        fn put(&mut self, _byte: u8) {}
+        fn put(&mut self, _: u8) {}
 
         fn unhook(&mut self) {}
 
-        fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {}
+        fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
 
-        fn csi_dispatch(&mut self, params: &[i64], _intermediates: &[u8], ignore: bool, _c: char) {
-            self.dispatched_csi = true;
+        fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, _: char) {
+            self.intermediates = intermediates.to_vec();
+            self.params = params.to_vec();
             self.ignore = ignore;
-            self.params.push(params.to_vec());
+            self.dispatched_csi = true;
         }
 
-        fn esc_dispatch(
-            &mut self,
-            _params: &[i64],
-            _intermediates: &[u8],
-            _ignore: bool,
-            _byte: u8,
-        ) {
-        }
+        fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
     }
 
     #[derive(Default)]
     struct DcsDispatcher {
         dispatched_dcs: bool,
+        intermediates: Vec<u8>,
         params: Vec<i64>,
+        ignore: bool,
         c: Option<char>,
         s: Vec<u8>,
     }
@@ -496,11 +477,14 @@ mod tests {
     impl Perform for DcsDispatcher {
         fn print(&mut self, _: char) {}
 
-        fn execute(&mut self, _byte: u8) {}
+        fn execute(&mut self, _: u8) {}
 
-        fn hook(&mut self, params: &[i64], _intermediates: &[u8], _ignore: bool, c: char) {
-            self.c = Some(c);
+        fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
+            self.intermediates = intermediates.to_vec();
             self.params = params.to_vec();
+            self.ignore = ignore;
+            self.c = Some(c);
+            self.dispatched_dcs = true;
         }
 
         fn put(&mut self, byte: u8) {
@@ -511,24 +495,41 @@ mod tests {
             self.dispatched_dcs = true;
         }
 
-        fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {}
+        fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
 
-        fn csi_dispatch(
-            &mut self,
-            _params: &[i64],
-            _intermediates: &[u8],
-            _ignore: bool,
-            _c: char,
-        ) {
-        }
+        fn csi_dispatch(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
 
-        fn esc_dispatch(
-            &mut self,
-            _params: &[i64],
-            _intermediates: &[u8],
-            _ignore: bool,
-            _byte: u8,
-        ) {
+        fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
+    }
+
+    #[derive(Default)]
+    struct EscDispatcher {
+        dispatched_esc: bool,
+        intermediates: Vec<u8>,
+        ignore: bool,
+        byte: u8,
+    }
+
+    impl Perform for EscDispatcher {
+        fn print(&mut self, _: char) {}
+
+        fn execute(&mut self, _: u8) {}
+
+        fn hook(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+
+        fn put(&mut self, _: u8) {}
+
+        fn unhook(&mut self) {}
+
+        fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
+
+        fn csi_dispatch(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+
+        fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+            self.intermediates = intermediates.to_vec();
+            self.ignore = ignore;
+            self.byte = byte;
+            self.dispatched_esc = true;
         }
     }
 
@@ -638,8 +639,7 @@ mod tests {
 
         // Check that flag is set and thus csi_dispatch assertions ran.
         assert!(dispatcher.dispatched_csi);
-        assert_eq!(dispatcher.params.len(), 1);
-        assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
+        assert_eq!(dispatcher.params.len(), MAX_PARAMS);
         assert!(!dispatcher.ignore);
     }
 
@@ -660,8 +660,7 @@ mod tests {
 
         // Check that flag is set and thus csi_dispatch assertions ran.
         assert!(dispatcher.dispatched_csi);
-        assert_eq!(dispatcher.params.len(), 1);
-        assert_eq!(dispatcher.params[0].len(), MAX_PARAMS);
+        assert_eq!(dispatcher.params.len(), MAX_PARAMS);
         assert!(dispatcher.ignore);
     }
 
@@ -674,8 +673,7 @@ mod tests {
             parser.advance(&mut dispatcher, *byte);
         }
 
-        assert_eq!(dispatcher.params.len(), 1);
-        assert_eq!(dispatcher.params[0], &[4, 0]);
+        assert_eq!(dispatcher.params, &[4, 0]);
     }
 
     #[test]
@@ -689,7 +687,7 @@ mod tests {
         }
 
         // Check that flag is set and thus osc_dispatch assertions ran.
-        assert_eq!(dispatcher.params[0], &[0, 4]);
+        assert_eq!(dispatcher.params, &[0, 4]);
     }
 
     #[test]
@@ -703,12 +701,12 @@ mod tests {
             parser.advance(&mut dispatcher, *byte);
         }
 
-        assert_eq!(dispatcher.params[0], &[i64::MAX as i64]);
+        assert_eq!(dispatcher.params, &[i64::MAX as i64]);
     }
 
     #[test]
     fn csi_reset() {
-        static INPUT: &[u8] = b"\x1b[3;1\x1b[2J";
+        static INPUT: &[u8] = b"\x1b[3;1\x1b[?1049h";
         let mut dispatcher = CsiDispatcher::default();
         let mut parser = Parser::new();
 
@@ -716,22 +714,41 @@ mod tests {
             parser.advance(&mut dispatcher, *byte);
         }
 
-        assert_eq!(dispatcher.params.len(), 1);
-        assert_eq!(dispatcher.params[0], &[2]);
+        assert!(dispatcher.dispatched_csi);
+        assert!(!dispatcher.ignore);
+        assert_eq!(dispatcher.intermediates, &[b'?']);
+        assert_eq!(dispatcher.params, &[1049]);
     }
 
     #[test]
     fn dcs_reset() {
-        static INPUT: &[u8] = b"\x1bP1X\x9c\x1b[31mH";
-        let mut dispatcher = CsiDispatcher::default();
+        static INPUT: &[u8] = b"\x1b[3;1\x1bP1$tx\x9c";
+        let mut dispatcher = DcsDispatcher::default();
         let mut parser = Parser::new();
 
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
 
-        assert_eq!(dispatcher.params.len(), 1);
-        assert_eq!(dispatcher.params[0], &[31]);
+        assert!(dispatcher.dispatched_dcs);
+        assert!(!dispatcher.ignore);
+        assert_eq!(dispatcher.intermediates, &[b'$']);
+        assert_eq!(dispatcher.params, &[1]);
+    }
+
+    #[test]
+    fn esc_reset() {
+        static INPUT: &[u8] = b"\x1b[3;1\x1b(A";
+        let mut dispatcher = EscDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert!(dispatcher.dispatched_esc);
+        assert!(!dispatcher.ignore);
+        assert_eq!(dispatcher.intermediates, &[b'(']);
     }
 
     #[test]
@@ -846,8 +863,8 @@ mod bench {
             black_box((params, intermediates, ignore, c));
         }
 
-        fn esc_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: u8) {
-            black_box((params, intermediates, ignore, byte));
+        fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+            black_box((intermediates, ignore, byte));
         }
     }
 
