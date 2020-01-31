@@ -323,8 +323,9 @@ impl Parser {
             },
             Action::Clear => {
                 self.intermediate_idx = 0;
-                self.num_params = 0;
                 self.ignoring = false;
+                self.num_params = 0;
+                self.param = 0;
             },
             Action::BeginUtf8 => {
                 self.process_utf8(performer, byte);
@@ -707,6 +708,19 @@ mod tests {
         }
 
         assert_eq!(dispatcher.params[0], &[i64::MAX as i64]);
+    }
+
+    #[test]
+    fn reset_param_on_clear() {
+        static INPUT: &[u8] = b"\x1bP1X\x9c\x1b[31mH";
+        let mut dispatcher = CsiDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.params[0], &[31]);
     }
 
     #[test]
