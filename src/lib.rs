@@ -286,9 +286,6 @@ impl Parser {
                     self.ignoring,
                     byte as char,
                 );
-
-                self.num_params = 0;
-                self.param = 0;
             },
             Action::EscDispatch => {
                 performer.esc_dispatch(self.params(), self.intermediates(), self.ignoring, byte);
@@ -322,6 +319,7 @@ impl Parser {
                 }
             },
             Action::Clear => {
+                // Reset everything on ESC/CSI/DCS entry
                 self.intermediate_idx = 0;
                 self.ignoring = false;
                 self.num_params = 0;
@@ -711,7 +709,21 @@ mod tests {
     }
 
     #[test]
-    fn reset_param_on_clear() {
+    fn csi_reset() {
+        static INPUT: &[u8] = b"\x1b[3;1\x1b[2J";
+        let mut dispatcher = CsiDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.params.len(), 1);
+        assert_eq!(dispatcher.params[0], &[2]);
+    }
+
+    #[test]
+    fn dcs_reset() {
         static INPUT: &[u8] = b"\x1bP1X\x9c\x1b[31mH";
         let mut dispatcher = CsiDispatcher::default();
         let mut parser = Parser::new();
@@ -720,6 +732,7 @@ mod tests {
             parser.advance(&mut dispatcher, *byte);
         }
 
+        assert_eq!(dispatcher.params.len(), 1);
         assert_eq!(dispatcher.params[0], &[31]);
     }
 
