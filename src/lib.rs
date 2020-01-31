@@ -325,9 +325,7 @@ impl Parser {
                 self.num_params = 0;
                 self.param = 0;
             },
-            Action::BeginUtf8 => {
-                self.process_utf8(performer, byte);
-            },
+            Action::BeginUtf8 => self.process_utf8(performer, byte),
         }
     }
 }
