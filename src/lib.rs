@@ -287,7 +287,9 @@ impl Parser {
                     byte as char,
                 );
             },
-            Action::EscDispatch => performer.esc_dispatch(self.intermediates(), self.ignoring, byte),
+            Action::EscDispatch => {
+                performer.esc_dispatch(self.intermediates(), self.ignoring, byte)
+            },
             Action::Ignore | Action::None => (),
             Action::Collect => {
                 if self.intermediate_idx == MAX_INTERMEDIATES {
