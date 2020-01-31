@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## [Unreleased]
+
+- Fix params reset between escapes
+
 ## 0.6.0
 
 - Fix build failure on Rust 1.36.0
