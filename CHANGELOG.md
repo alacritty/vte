@@ -4,6 +4,7 @@ CHANGELOG
 ## [Unreleased]
 
 - Fix params reset between escapes
+- Removed unused parameter from `esc_dispatch`
 
 ## 0.6.0
 
