@@ -1,7 +1,7 @@
 CHANGELOG
 =========
 
-## [Unreleased]
+## 0.7.0
 
 - Fix params reset between escapes
 - Removed unused parameter from `esc_dispatch`
