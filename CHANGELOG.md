@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## [Unreleased]
+
+- Out of bounds when parsing a DCS with more than 16 parameters
+
 ## 0.7.0
 
 - Fix params reset between escapes
