@@ -202,8 +202,12 @@ impl Parser {
             Action::Print => performer.print(byte as char),
             Action::Execute => performer.execute(byte),
             Action::Hook => {
-                self.params[self.num_params] = self.param;
-                self.num_params += 1;
+                if self.num_params == MAX_PARAMS {
+                    self.ignoring = true;
+                } else {
+                    self.params[self.num_params] = self.param;
+                    self.num_params += 1;
+                }
 
                 performer.hook(self.params(), self.intermediates(), self.ignoring, byte as char);
             },
@@ -579,6 +583,25 @@ mod tests {
         assert_eq!(dispatcher.params.len(), MAX_PARAMS);
         for param in dispatcher.params.iter() {
             assert_eq!(param.len(), 0);
+        }
+    }
+
+    #[test]
+    fn parse_dcs_max_params() {
+        static INPUT: &[u8] = b"\x1bP1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;p\x1b";
+        let mut dispatcher = DcsDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Check that flag is set and thus osc_dispatch assertions ran.
+        assert!(dispatcher.ignore);
+        assert!(dispatcher.dispatched_dcs);
+        assert_eq!(dispatcher.params.len(), MAX_PARAMS);
+        for param in dispatcher.params.iter() {
+            assert_eq!(*param, 1);
         }
     }
 
