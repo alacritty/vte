@@ -1,7 +1,7 @@
 CHANGELOG
 =========
 
-## [Unreleased]
+## 0.7.1
 
 - Out of bounds when parsing a DCS with more than 16 parameters
 
