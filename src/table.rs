@@ -170,8 +170,6 @@ generate_state_changes!(state_changes, {
         0x08..=0x17 => (Anywhere, Ignore),
         0x19        => (Anywhere, Ignore),
         0x1c..=0x1f => (Anywhere, Ignore),
-        0x20..=0x9b => (Anywhere, OscPut),
-        0x9c        => (Ground, None),
-        0x9d..=0xff => (Anywhere, OscPut),
+        0x20..=0xff => (Anywhere, OscPut),
     }
 });
