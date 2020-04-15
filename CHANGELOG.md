@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Remove C1 ST support in OSCs, fixing OSCs with ST in the payload
+
 ## 0.7.1
 
 - Out of bounds when parsing a DCS with more than 16 parameters

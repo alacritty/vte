@@ -620,20 +620,6 @@ mod tests {
     }
 
     #[test]
-    fn osc_c1_st_terminated() {
-        static INPUT: &[u8] = b"\x1b]11;ff/00/ff\x9c";
-        let mut dispatcher = OscDispatcher::default();
-        let mut parser = Parser::new();
-
-        for byte in INPUT {
-            parser.advance(&mut dispatcher, *byte);
-        }
-
-        assert!(dispatcher.dispatched_osc);
-        assert!(!dispatcher.bell_terminated);
-    }
-
-    #[test]
     fn osc_c0_st_terminated() {
         static INPUT: &[u8] = b"\x1b]11;ff/00/ff\x1b\\";
         let mut dispatcher = OscDispatcher::default();
@@ -793,6 +779,19 @@ mod tests {
         // Check that flag is set and thus osc_dispatch assertions ran.
         assert_eq!(dispatcher.params[0], &[b'2']);
         assert_eq!(dispatcher.params[1], &INPUT[5..(INPUT.len() - 1)]);
+    }
+
+    #[test]
+    fn osc_containing_string_terminator() {
+        static INPUT: &[u8] = b"\x1b]2;\xe6\x9c\xab\x1b\\";
+        let mut dispatcher = OscDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.params[1], &INPUT[4..(INPUT.len() - 2)]);
     }
 
     #[test]
