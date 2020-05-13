@@ -1,7 +1,7 @@
 CHANGELOG
 =========
 
-## Unreleased
+## 0.8.0
 
 - Remove C1 ST support in OSCs, fixing OSCs with ST in the payload
 
