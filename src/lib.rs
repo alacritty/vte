@@ -980,14 +980,71 @@ mod tests {
         );
     }
 
+    // Tests derived from https://hsivonen.fi/broken-utf-8/test.html
+    // See https://hsivonen.fi/broken-utf-8/ for discussion.
     #[test]
-    fn parse_invalid_utf8_at_end() {
+    fn how_many_replacement_characters() {
+        test_print(b"\xc0\x80", "��");
+        test_print(b"\xe0\x80\x80", "���");
+        test_print(b"\xf0\x80\x80\x80", "����");
+        test_print(b"\xf8\x80\x80\x80\x80", "�����");
+        test_print(b"\xfc\x80\x80\x80\x80\x80", "������");
+        test_print(b"\xc1\xbf", "��");
+        test_print(b"\xe0\x81\xbf", "���");
+        test_print(b"\xf0\x80\x81\xbf", "����");
+        test_print(b"\xf8\x80\x80\x81\xbf", "�����");
+        test_print(b"\xfc\x80\x80\x80\x81\xbf", "������");
+        test_print(b"\xe0\x82\x80", "���");
+        test_print(b"\xf0\x80\x82\x80", "����");
+        test_print(b"\xf8\x80\x80\x82\x80", "�����");
+        test_print(b"\xfc\x80\x80\x80\x82\x80", "������");
+        test_print(b"\xe0\x9f\xbf", "���");
+        test_print(b"\xf0\x80\x9f\xbf", "����");
+        test_print(b"\xf8\x80\x80\x9f\xbf", "�����");
+        test_print(b"\xfc\x80\x80\x80\x9f\xbf", "������");
+        test_print(b"\xf0\x80\xa0\x80", "����");
+        test_print(b"\xf8\x80\x80\xa0\x80", "�����");
+        test_print(b"\xfc\x80\x80\x80\xa0\x80", "������");
+        test_print(b"\xf0\x8f\xbf\xbf", "����");
+        test_print(b"\xf8\x80\x8f\xbf\xbf", "�����");
+        test_print(b"\xfc\x80\x80\x8f\xbf\xbf", "������");
+        test_print(b"\xf8\x80\x90\x80\x80", "�����");
+        test_print(b"\xfc\x80\x80\x90\x80\x80", "������");
+        test_print(b"\xf8\x84\x8f\xbf\xbf", "�����");
+        test_print(b"\xfc\x80\x84\x8f\xbf\xbf", "������");
+        test_print(b"\xf4\x90\x80\x80", "����");
+        test_print(b"\xfb\xbf\xbf\xbf\xbf", "�����");
+        test_print(b"\xfd\xbf\xbf\xbf\xbf\xbf", "������");
+        test_print(b"\xed\xa0\x80", "���");
+        test_print(b"\xed\xbf\xbf", "���");
+        test_print(b"\xed\xa0\xbd\xed\xb2\xa9", "������");
+        test_print(b"\xf8\x84\x90\x80\x80", "�����");
+        test_print(b"\xfc\x80\x84\x90\x80\x80", "������");
+        test_print(b"\xf0\x8d\xa0\x80", "����");
+        test_print(b"\xf0\x8d\xbf\xbf", "����");
+        test_print(b"\xf0\x8d\xa0\xbd\xf0\x8d\xb2\xa9", "��������");
+        test_print(b"\x80", "�");
+        test_print(b"\x80\x80", "��");
+        test_print(b"\x80\x80\x80", "���");
+        test_print(b"\x80\x80\x80\x80", "����");
+        test_print(b"\x80\x80\x80\x80\x80", "�����");
+        test_print(b"\x80\x80\x80\x80\x80\x80", "������");
+        test_print(b"\x80\x80\x80\x80\x80\x80\x80", "�������");
+        test_print(b"\xc2\xb6\x80", "¶�");
+        test_print(b"\xe2\x98\x83\x80", "☃�");
+        test_print(b"\xf0\x9f\x92\xa9\x80", "💩�");
+        test_print(b"\xfb\xbf\xbf\xbf\xbf\x80", "������");
+        test_print(b"\xfd\xbf\xbf\xbf\xbf\xbf\x80", "�������");
         test_print(b"\xc2", "�");
         test_print(b"\xe2", "�");
         test_print(b"\xe2\x98", "�");
         test_print(b"\xf0", "�");
         test_print(b"\xf0\x9f", "�");
         test_print(b"\xf0\x9f\x92", "�");
+        test_print(b"\xfe", "�");
+        test_print(b"\xfe\x80", "��");
+        test_print(b"\xff", "�");
+        test_print(b"\xff\x80", "��");
     }
 }
 
