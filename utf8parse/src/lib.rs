@@ -66,6 +66,22 @@ impl Parser {
         }
     }
 
+    /// Inform the parser the end of the stream has been reached.
+    ///
+    /// The provider receiver will be called if there is an invalid sequence at
+    /// the end of the stream.
+    #[inline]
+    pub fn end<R>(&mut self, receiver: &mut R)
+    where
+        R: Receiver,
+    {
+        if let State::Ground = self.state {
+            // Everything's ok.
+        } else {
+            receiver.invalid_sequence();
+        }
+    }
+
     fn perform_action<R>(&mut self, receiver: &mut R, byte: u8, action: Action)
     where
         R: Receiver,

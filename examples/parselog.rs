@@ -60,7 +60,10 @@ fn main() {
 
     loop {
         match handle.read(&mut buf) {
-            Ok(0) => break,
+            Ok(0) => {
+                statemachine.end(&mut performer);
+                break;
+            },
             Ok(n) => {
                 for byte in &buf[..n] {
                     statemachine.advance(&mut performer, *byte);

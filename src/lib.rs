@@ -128,6 +128,25 @@ impl Parser {
         self.perform_state_change(performer, state, action, byte);
     }
 
+    /// Ends the stream.
+    ///
+    /// This ensures that an incomplete UTF-8 sequence at the end of the input
+    /// stream is translated into a replacement character. It isn't necessary to
+    /// call this for streams which don't end, such as ttys.
+    ///
+    /// Requires a [`Perform`] in case the stream ending triggers an action
+    ///
+    /// [`Perform`]: trait.Perform.html
+    #[inline]
+    pub fn end<P: Perform>(&mut self, performer: &mut P) {
+        if let State::Utf8 = self.state {
+            self.process_end_utf8(performer);
+            return;
+        }
+
+        self.state = State::Ground;
+    }
+
     #[inline]
     fn process_utf8<P>(&mut self, performer: &mut P, byte: u8)
     where
@@ -140,6 +159,16 @@ impl Parser {
             // we reset to ground and a byte can always be processed at ground.
             self.advance(performer, byte);
         }
+    }
+
+    #[inline]
+    fn process_end_utf8<P>(&mut self, performer: &mut P)
+    where
+        P: Perform,
+    {
+        let mut receiver = VtUtf8Receiver(performer, &mut self.state);
+        let utf8_parser = &mut self.utf8_parser;
+        utf8_parser.end(&mut receiver)
     }
 
     #[inline]
@@ -931,6 +960,7 @@ mod tests {
         for byte in bytes {
             parser.advance(&mut dispatcher, *byte);
         }
+        parser.end(&mut dispatcher);
 
         assert_eq!(dispatcher.printed, expected, "input bytes: {:#x?}", bytes);
     }
@@ -948,6 +978,16 @@ mod tests {
             b"\x22\x6e\x35\x3d\x84\x34\x25\xe5\x2d\x49\xf6\x4e\xce\xfa\x06\xb3",
             "\"n5=�4%�-I�N��\u{6}�",
         );
+    }
+
+    #[test]
+    fn parse_invalid_utf8_at_end() {
+        test_print(b"\xc2", "�");
+        test_print(b"\xe2", "�");
+        test_print(b"\xe2\x98", "�");
+        test_print(b"\xf0", "�");
+        test_print(b"\xf0\x9f", "�");
+        test_print(b"\xf0\x9f\x92", "�");
     }
 }
 

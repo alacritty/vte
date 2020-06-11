@@ -14,6 +14,26 @@ impl Receiver for StringWrapper {
 }
 
 #[test]
+fn abrupt_end() {
+    let mut parser = Parser::new();
+
+    // utf8parse implementation
+    let mut actual = StringWrapper(String::new());
+
+    let input = b"\xc2";
+
+    for byte in input {
+        while !parser.advance(&mut actual, *byte) {}
+    }
+    parser.end(&mut actual);
+
+    // standard library implementation
+    let expected = String::from_utf8_lossy(input).to_string();
+
+    assert_eq!(actual.0, expected);
+}
+
+#[test]
 fn multiple_invalid_continuations() {
     let mut parser = Parser::new();
 
@@ -25,6 +45,7 @@ fn multiple_invalid_continuations() {
     for byte in input {
         while !parser.advance(&mut actual, *byte) {}
     }
+    parser.end(&mut actual);
 
     // standard library implementation
     let expected = String::from_utf8_lossy(input).to_string();

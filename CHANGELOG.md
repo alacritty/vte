@@ -3,6 +3,9 @@ CHANGELOG
 
 ## 0.9.0
 
+- Add a `Parser::end` function allowing users to mark the end of a stream,
+  so that an incomplete UTF-8 encoding at the end of the stream can be
+  reported.
 - Remove 8-bit C1 support. 8-bit C1 codes are now interpreted as UTF-8
   continuation bytes.
 
