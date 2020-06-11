@@ -348,7 +348,7 @@ pub trait Perform {
     /// Draw a character to the screen and update states.
     fn print(&mut self, _: char);
 
-    /// Execute a C0 or C1 control function.
+    /// Execute a C0 control function.
     fn execute(&mut self, byte: u8);
 
     /// Invoked when a final character arrives in first part of device control string.
@@ -845,6 +845,48 @@ mod tests {
 
         #[cfg(feature = "no_std")]
         assert_eq!(dispatcher.params[1].len(), MAX_OSC_RAW - dispatcher.params[0].len());
+    }
+
+    #[derive(Default)]
+    struct InvalidUtf8ByteDispatcher {
+        num_invalid: u8,
+    }
+
+    impl Perform for InvalidUtf8ByteDispatcher {
+        fn print(&mut self, c: char) {
+            assert_eq!(c, '�');
+            self.num_invalid += 1;
+        }
+
+        fn execute(&mut self, _: u8) {}
+
+        fn hook(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+
+        fn put(&mut self, _: u8) {}
+
+        fn unhook(&mut self) {}
+
+        fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
+
+        fn csi_dispatch(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+
+        fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
+    }
+
+    #[test]
+    fn parse_invalid_utf8_byte() {
+        let mut dispatcher = InvalidUtf8ByteDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in 0x80..0xc2 {
+            parser.advance(&mut dispatcher, byte);
+        }
+        for byte in 0xf5..=0xff {
+            parser.advance(&mut dispatcher, byte);
+        }
+
+        // Continuation bytes, overlong bytes, invalid code points, invalid code units.
+        assert_eq!(dispatcher.num_invalid, 64 + 2 + 9 + 2);
     }
 }
 
