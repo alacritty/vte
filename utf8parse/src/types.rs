@@ -4,21 +4,23 @@
 #[derive(Debug, Copy, Clone)]
 pub enum Action {
     /// Unexpected byte; sequence is invalid
-    InvalidSequence = 0,
+    InvalidContinuation = 0,
+    /// Byte not valid continuation; preceding sequence is invalid
+    InvalidByte = 1,
     /// Received valid 7-bit ASCII byte which can be directly emitted.
-    EmitByte = 1,
+    EmitByte = 2,
     /// Set the bottom continuation byte
-    SetByte1 = 2,
+    SetByte1 = 3,
     /// Set the 2nd-from-last continuation byte
-    SetByte2 = 3,
+    SetByte2 = 4,
     /// Set the 2nd-from-last byte which is part of a two byte sequence
-    SetByte2Top = 4,
+    SetByte2Top = 5,
     /// Set the 3rd-from-last continuation byte
-    SetByte3 = 5,
+    SetByte3 = 6,
     /// Set the 3rd-from-last byte which is part of a three byte sequence
-    SetByte3Top = 6,
+    SetByte3Top = 7,
     /// Set the top byte of a four byte sequence.
-    SetByte4 = 7,
+    SetByte4 = 8,
 }
 
 /// States the parser can be in.
@@ -70,35 +72,35 @@ impl State {
                 0xf0 => (State::Utf8_4_3_f0, Action::SetByte4),
                 0xf1..=0xf3 => (State::Tail3, Action::SetByte4),
                 0xf4 => (State::Utf8_4_3_f4, Action::SetByte4),
-                _ => (State::Ground, Action::InvalidSequence),
+                _ => (State::Ground, Action::InvalidByte),
             },
             State::U3_2_e0 => match byte {
                 0xa0..=0xbf => (State::Tail1, Action::SetByte2),
-                _ => (State::Ground, Action::InvalidSequence),
+                _ => (State::Ground, Action::InvalidContinuation),
             },
             State::U3_2_ed => match byte {
                 0x80..=0x9f => (State::Tail1, Action::SetByte2),
-                _ => (State::Ground, Action::InvalidSequence),
+                _ => (State::Ground, Action::InvalidContinuation),
             },
             State::Utf8_4_3_f0 => match byte {
                 0x90..=0xbf => (State::Tail2, Action::SetByte3),
-                _ => (State::Ground, Action::InvalidSequence),
+                _ => (State::Ground, Action::InvalidContinuation),
             },
             State::Utf8_4_3_f4 => match byte {
                 0x80..=0x8f => (State::Tail2, Action::SetByte3),
-                _ => (State::Ground, Action::InvalidSequence),
+                _ => (State::Ground, Action::InvalidContinuation),
             },
             State::Tail3 => match byte {
                 0x80..=0xbf => (State::Tail2, Action::SetByte3),
-                _ => (State::Ground, Action::InvalidSequence),
+                _ => (State::Ground, Action::InvalidContinuation),
             },
             State::Tail2 => match byte {
                 0x80..=0xbf => (State::Tail1, Action::SetByte2),
-                _ => (State::Ground, Action::InvalidSequence),
+                _ => (State::Ground, Action::InvalidContinuation),
             },
             State::Tail1 => match byte {
                 0x80..=0xbf => (State::Ground, Action::SetByte1),
-                _ => (State::Ground, Action::InvalidSequence),
+                _ => (State::Ground, Action::InvalidContinuation),
             },
         }
     }

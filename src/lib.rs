@@ -135,7 +135,11 @@ impl Parser {
     {
         let mut receiver = VtUtf8Receiver(performer, &mut self.state);
         let utf8_parser = &mut self.utf8_parser;
-        utf8_parser.advance(&mut receiver, byte);
+        if !utf8_parser.advance(&mut receiver, byte) {
+            // The byte wasn't consumed; reprocess it. Recursion is limited as
+            // we reset to ground and a byte can always be processed at ground.
+            self.advance(performer, byte);
+        }
     }
 
     #[inline]
@@ -887,6 +891,63 @@ mod tests {
 
         // Continuation bytes, overlong bytes, invalid code points, invalid code units.
         assert_eq!(dispatcher.num_invalid, 64 + 2 + 9 + 2);
+    }
+
+    #[derive(Default)]
+    struct PrintDispatcher {
+        printed: String,
+    }
+
+    impl Perform for PrintDispatcher {
+        fn print(&mut self, c: char) {
+            self.printed.push(c);
+        }
+
+        fn execute(&mut self, b: u8) {
+            self.printed.push(b as char)
+        }
+
+        fn hook(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+
+        fn put(&mut self, _: u8) {}
+
+        fn unhook(&mut self) {}
+
+        fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
+
+        fn csi_dispatch(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+
+        fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
+    }
+
+    fn test_print(bytes: &[u8], expected: &str) {
+        // Double-check that the expected bytes match `String::from_utf8_lossy`.
+        #[cfg(not(feature = "no_std"))]
+        assert_eq!(expected, String::from_utf8_lossy(bytes), "input bytes: {:#x?}", bytes);
+
+        let mut dispatcher = PrintDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in bytes {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.printed, expected, "input bytes: {:#x?}", bytes);
+    }
+
+    #[test]
+    fn parse_misc_invalid_utf8() {
+        test_print(b"\xc2A\xe1\x80B\xf1\x80\x80C", "�A�B�C");
+        test_print(b"\xf4\x90", "��");
+        test_print(b"\xed\xa0", "��");
+        test_print(b"\xc2\xc3\x20", "�� ");
+        test_print(b"\x80\xc2\xc2.\xc0\x80", "���.��");
+        test_print(b"\x90\xfd\xfe\xff\x80", "�����");
+        test_print(b"\x10\x75\xf8\xc4\x19\x04", "\u{10}u��\u{19}\u{4}");
+        test_print(
+            b"\x22\x6e\x35\x3d\x84\x34\x25\xe5\x2d\x49\xf6\x4e\xce\xfa\x06\xb3",
+            "\"n5=�4%�-I�N��\u{6}�",
+        );
     }
 }
 

@@ -44,13 +44,26 @@ impl Parser {
     ///
     /// The provider receiver will be called whenever a codepoint is completed or an invalid
     /// sequence is detected.
-    pub fn advance<R>(&mut self, receiver: &mut R, byte: u8)
+    ///
+    /// Return false if and only if the byte was not a valid continuation of a preceding
+    /// sequence, and should be reprocessed as an independent byte.
+    pub fn advance<R>(&mut self, receiver: &mut R, byte: u8) -> bool
     where
         R: Receiver,
     {
         let (state, action) = self.state.advance(byte);
         self.perform_action(receiver, byte, action);
         self.state = state;
+
+        // The byte wasn't valid as a continuation of the preceding
+        // sequence, so after reporting the sequence as invalid, we
+        // return false to indicate that the byte is not consumed
+        // and should be reprocessed.
+        if let Action::InvalidContinuation = action {
+            false
+        } else {
+            true
+        }
     }
 
     fn perform_action<R>(&mut self, receiver: &mut R, byte: u8, action: Action)
@@ -58,7 +71,7 @@ impl Parser {
         R: Receiver,
     {
         match action {
-            Action::InvalidSequence => {
+            Action::InvalidByte | Action::InvalidContinuation => {
                 self.point = 0;
                 receiver.invalid_sequence();
             },
