@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+## 0.9.0
+
+- Remove 8-bit C1 support. 8-bit C1 codes are now interpreted as UTF-8
+  continuation bytes.
+
 ## 0.8.0
 
 - Remove C1 ST support in OSCs, fixing OSCs with ST in the payload

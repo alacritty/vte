@@ -18,15 +18,9 @@ generate_state_changes!(state_changes, {
         0x19        => (Anywhere, Execute),
         0x1c..=0x1f => (Anywhere, Execute),
         0x20..=0x7f => (Anywhere, Print),
-        0x80..=0x8f => (Anywhere, Execute),
-        0x91..=0x9a => (Anywhere, Execute),
-        0x9c        => (Anywhere, Execute),
-        // Beginning of UTF-8 2 byte sequence
-        0xc2..=0xdf => (Utf8, BeginUtf8),
-        // Beginning of UTF-8 3 byte sequence
-        0xe0..=0xef => (Utf8, BeginUtf8),
-        // Beginning of UTF-8 4 byte sequence
-        0xf0..=0xf4 => (Utf8, BeginUtf8),
+        // Hand all non-ASCII bytes to the UTF-8 parser to figure out. This
+        // includes 8-bit C1 codes, since we don't recognize them as such.
+        0x80..=0xff => (Utf8, BeginUtf8),
     },
 
     Escape {
