@@ -54,7 +54,7 @@ fn main() {
     let mut handle = input.lock();
 
     let mut statemachine = vte::Parser::new();
-    let mut parser = Log;
+    let mut performer = Log;
 
     let mut buf = [0; 2048];
 
@@ -63,7 +63,7 @@ fn main() {
             Ok(0) => break,
             Ok(n) => {
                 for byte in &buf[..n] {
-                    statemachine.advance(&mut parser, *byte);
+                    statemachine.advance(&mut performer, *byte);
                 }
             },
             Err(err) => {
