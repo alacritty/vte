@@ -26,6 +26,7 @@
 //! * OSC Strings can be terminated by 0x07
 //! * Only supports 7-bit codes. Some 8-bit codes are still supported, but they no longer work in
 //!   all states.
+//! * Support for DCS/SOS/PM/APC can be disabled.
 //!
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
@@ -83,12 +84,22 @@ pub struct Parser {
     osc_num_params: usize,
     ignoring: bool,
     utf8_parser: utf8::Parser,
+    no_dcs_sos_pm_apc: bool,
 }
 
 impl Parser {
     /// Create a new Parser
     pub fn new() -> Parser {
         Parser::default()
+    }
+
+    /// Disable or enable recognition of DCS, SOS, PM, and APC sequences.
+    ///
+    /// The only terminator for DCS, SOS, PM, and APC sequences is an 8-bit ST
+    /// code, which isn't valid UTF-8, so clients wishing to support only UTF-8
+    /// should use this to disable support for these sequences.
+    pub fn set_dcs_sos_pm_apc(&mut self, dcs_sos_pm_apc: bool) {
+        self.no_dcs_sos_pm_apc = !dcs_sos_pm_apc;
     }
 
     #[inline]
@@ -229,6 +240,15 @@ impl Parser {
         }
     }
 
+    /// Reset everything on ESC/CSI/DCS entry
+    #[inline]
+    fn clear(&mut self) {
+        self.intermediate_idx = 0;
+        self.ignoring = false;
+        self.num_params = 0;
+        self.param = 0;
+    }
+
     #[inline]
     fn perform_action<P: Perform>(&mut self, performer: &mut P, action: Action, byte: u8) {
         match action {
@@ -327,7 +347,7 @@ impl Parser {
             Action::EscDispatch => {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte)
             },
-            Action::Ignore | Action::None => (),
+            Action::None => (),
             Action::Collect => {
                 if self.intermediate_idx == MAX_INTERMEDIATES {
                     self.ignoring = true;
@@ -355,14 +375,16 @@ impl Parser {
                     self.param = self.param.saturating_add((byte - b'0') as i64);
                 }
             },
-            Action::Clear => {
-                // Reset everything on ESC/CSI/DCS entry
-                self.intermediate_idx = 0;
-                self.ignoring = false;
-                self.num_params = 0;
-                self.param = 0;
-            },
+            Action::Clear => self.clear(),
             Action::BeginUtf8 => self.process_utf8(performer, byte),
+            Action::CheckDcsSosPmApc => {
+                if self.no_dcs_sos_pm_apc {
+                    self.state = State::Escape;
+                    self.clear();
+                    performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
+                    self.state = State::Ground;
+                }
+            },
         }
     }
 }
@@ -842,6 +864,24 @@ mod tests {
         assert_eq!(dispatcher.params, vec![0, 1]);
         assert_eq!(dispatcher.c, Some('|'));
         assert_eq!(dispatcher.s, b"17/ab".to_vec());
+    }
+
+    #[test]
+    fn dcs_disabled() {
+        static INPUT: &[u8] =
+            &[0x1b, 0x50, 0x30, 0x3b, 0x31, 0x7c, 0x31, 0x37, 0x2f, 0x61, 0x62, 0x9c];
+        let mut dispatcher = EscDispatcher::default();
+        let mut parser = Parser::new();
+        parser.set_dcs_sos_pm_apc(false);
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert!(dispatcher.dispatched_esc);
+        assert!(dispatcher.intermediates.is_empty());
+        assert!(!dispatcher.ignore);
+        assert_eq!(dispatcher.byte, 0x50);
     }
 
     #[test]

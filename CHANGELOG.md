@@ -11,6 +11,9 @@ CHANGELOG
   reported.
 - Remove 8-bit C1 support. 8-bit C1 codes are now interpreted as UTF-8
   continuation bytes.
+- DCS/SOS/PM/APC recognition may now be disabled with the
+  `Parser::set_dcs_pm_apc` function. This is useful for UTF-8-only environments
+  where the 8-bit ST terminator is invalid.
 
 ## 0.8.0
 

@@ -37,7 +37,7 @@ pub enum Action {
     EscDispatch = 4,
     Execute = 5,
     Hook = 6,
-    Ignore = 7,
+    CheckDcsSosPmApc = 7,
     OscEnd = 8,
     OscPut = 9,
     OscStart = 10,
