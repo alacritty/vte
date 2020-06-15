@@ -3,6 +3,9 @@ CHANGELOG
 
 ## 0.9.0
 
+- Invalid UTF-8 sequences are now translated into replacement characters
+  in a manner consistent with `Rust::from_utf8_lossy` and the resolution to
+  ["How many replacement characters?"](https://hsivonen.fi/broken-utf-8/).
 - Add a `Parser::end` function allowing users to mark the end of a stream,
   so that an incomplete UTF-8 encoding at the end of the stream can be
   reported.

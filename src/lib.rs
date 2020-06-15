@@ -197,14 +197,14 @@ impl Parser {
                 let exit_action = self.state.exit_action();
                 maybe_action!(exit_action, byte);
 
+                // Assume the new state
+                self.state = state;
+
                 // Transition action
                 maybe_action!(action, byte);
 
                 // Entry action for new state
-                maybe_action!(state.entry_action(), byte);
-
-                // Assume the new state
-                self.state = state;
+                maybe_action!(self.state.entry_action(), byte);
             },
         }
     }
@@ -929,10 +929,12 @@ mod tests {
 
     impl Perform for PrintDispatcher {
         fn print(&mut self, c: char) {
+            assert!(c.is_whitespace() || !c.is_ascii_control() || c == '\u{007f}');
             self.printed.push(c);
         }
 
         fn execute(&mut self, b: u8) {
+            assert!(b.is_ascii_control() && b != b'\x7f');
             self.printed.push(b as char)
         }
 
@@ -977,6 +979,15 @@ mod tests {
         test_print(
             b"\x22\x6e\x35\x3d\x84\x34\x25\xe5\x2d\x49\xf6\x4e\xce\xfa\x06\xb3",
             "\"n5=�4%�-I�N��\u{6}�",
+        );
+        test_print(b"\xfe\x19\xdb\xf5", "�\u{19}��");
+        test_print(b"\xfe\x19\xdb\xf5", "�\u{19}��");
+        test_print(b"\x80\xc2\x80\x9f\xc2\x9f", "�\u{80}�\u{9f}");
+        test_print(b"\xc2\x18\xc2\x00\xc2\x1a", "�\u{18}�\u{0}�\u{1a}");
+        test_print(b"\xdd\xdd\xfa\x2a\x47\xd9\xd8\x9b\x9c\x97\xa1\x9a\x9b", "���*G�؛�����");
+        test_print(
+            b"\x9b\x9c\x97\xa1\x9a\x9b\xfd\x44\xaa\x14\x52\x5f\x33\x5f\x22\x6e\x35\x3d\x84\x34",
+            "�������D�\u{14}R_3_\"n5=�4",
         );
     }
 
