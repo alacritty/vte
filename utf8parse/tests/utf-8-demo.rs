@@ -25,7 +25,7 @@ fn utf8parse_test() {
     }
 
     // standard library implementation
-    let expected = String::from_utf8_lossy(UTF8_DEMO).to_string();
+    let expected = String::from_utf8_lossy(UTF8_DEMO);
 
     assert_eq!(actual.0, expected);
 }
