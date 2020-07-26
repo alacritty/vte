@@ -160,15 +160,32 @@ impl Parser {
                 self.perform_action(performer, action, byte);
             },
             state => {
-                // Exit action for previous state
-                let exit_action = self.state.exit_action();
-                maybe_action!(exit_action, byte);
+                match self.state {
+                    State::DcsPassthrough => {
+                        self.perform_action(performer, Action::Unhook, byte);
+                        maybe_action!(action, byte);
+                    },
+                    State::OscString => {
+                        self.perform_action(performer, Action::OscEnd, byte);
+                        maybe_action!(action, byte);
+                    },
+                    _ => {
+                        maybe_action!(action, byte);
 
-                // Transition action
-                maybe_action!(action, byte);
-
-                // Entry action for new state
-                maybe_action!(state.entry_action(), byte);
+                        match state {
+                            State::CsiEntry | State::DcsEntry | State::Escape => {
+                                self.perform_action(performer, Action::Clear, byte);
+                            },
+                            State::DcsPassthrough => {
+                                self.perform_action(performer, Action::Hook, byte);
+                            },
+                            State::OscString => {
+                                self.perform_action(performer, Action::OscStart, byte);
+                            },
+                            _ => (),
+                        }
+                    },
+                }
 
                 // Assume the new state
                 self.state = state;
@@ -294,7 +311,6 @@ impl Parser {
             Action::EscDispatch => {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte)
             },
-            Action::Ignore | Action::None => (),
             Action::Collect => {
                 if self.intermediate_idx == MAX_INTERMEDIATES {
                     self.ignoring = true;
@@ -330,6 +346,8 @@ impl Parser {
                 self.param = 0;
             },
             Action::BeginUtf8 => self.process_utf8(performer, byte),
+            Action::Ignore => (),
+            Action::None => (),
         }
     }
 }
@@ -900,6 +918,21 @@ mod bench {
 
             for byte in VTE_DEMO {
                 parser.advance(&mut dispatcher, *byte);
+            }
+        });
+    }
+
+    #[bench]
+    fn state_changes(b: &mut Bencher) {
+        let input = b"\x1b]2;X\x1b\\ \x1b[0m \x1bP0@\x1b\\";
+        b.iter(|| {
+            let mut dispatcher = BenchDispatcher;
+            let mut parser = Parser::new();
+
+            for _ in 0..1_000 {
+                for byte in input {
+                    parser.advance(&mut dispatcher, *byte);
+                }
             }
         });
     }
