@@ -43,6 +43,9 @@ use utf8parse as utf8;
 mod definitions;
 mod table;
 
+#[cfg(feature = "ansi")]
+pub mod ansi;
+
 use definitions::{unpack, Action, State};
 
 const MAX_INTERMEDIATES: usize = 2;
