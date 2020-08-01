@@ -1,11 +1,11 @@
 //! ANSI Terminal Stream Parsing.
 
 extern crate alloc;
-use alloc::{borrow::ToOwned, string::String, vec::Vec};
+use alloc::{borrow::ToOwned, vec::Vec};
 use core::str;
 
 #[cfg(feature = "no_std")]
-use arrayvec::ArrayVec;
+use arrayvec::{ArrayString, ArrayVec};
 use log::{debug, trace};
 
 use crate::{Parser, Perform};
@@ -148,7 +148,7 @@ impl Processor {
 /// writing specific handler impls for tests far easier.
 pub trait Handler<W> {
     /// OSC to set window title.
-    fn set_title(&mut self, _: Option<String>) {}
+    fn set_title(&mut self, _: Option<&str>) {}
 
     /// Set the cursor style.
     fn set_cursor_style(&mut self, _: Option<CursorStyle>) {}
@@ -796,14 +796,26 @@ where
             // Set window title.
             b"0" | b"2" => {
                 if params.len() >= 2 {
-                    let title = params[1..]
-                        .iter()
-                        .flat_map(|x| str::from_utf8(x))
-                        .collect::<Vec<&str>>()
-                        .join(";")
-                        .trim()
-                        .to_owned();
-                    self.handler.set_title(Some(title));
+                    #[cfg(feature = "no_std")]
+                    {
+                        let mut title = ArrayString::<[_; crate::MAX_OSC_RAW]>::new();
+                        params[1..].iter().flat_map(|x| str::from_utf8(x)).for_each(|s| {
+                            title.push_str(s);
+                            title.push(';');
+                        });
+                        title.pop();
+                        self.handler.set_title(Some(&title));
+                    }
+                    #[cfg(not(feature = "no_std"))]
+                    {
+                        let title = params[1..]
+                            .iter()
+                            .flat_map(|x| str::from_utf8(x))
+                            .collect::<Vec<&str>>()
+                            .join(";")
+                            .to_owned();
+                        self.handler.set_title(Some(&title));
+                    }
                     return;
                 }
                 unhandled(params);
