@@ -4,14 +4,13 @@ use std::str;
 use std::string::String;
 
 use log::{debug, trace};
-use serde::{Deserialize, Serialize};
 
 use crate::{Parser, Perform};
 
 type Line = usize;
 type Column = usize;
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 pub struct Rgb {
     pub r: u8,
     pub g: u8,
@@ -326,7 +325,7 @@ pub trait Handler<W> {
 }
 
 /// Describes shape of cursor.
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub enum CursorStyle {
     /// Cursor is a block like `▒`.
     Block,
@@ -338,11 +337,9 @@ pub enum CursorStyle {
     Beam,
 
     /// Cursor is a box like `☐`.
-    #[serde(skip)]
     HollowBlock,
 
     /// Invisible cursor.
-    #[serde(skip)]
     Hidden,
 }
 
@@ -493,7 +490,7 @@ pub enum TabulationClearMode {
 ///
 /// The order here matters since the enum should be castable to a `usize` for
 /// indexing a color list.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum NamedColor {
     /// Black.
     Black = 0,
@@ -605,7 +602,7 @@ impl NamedColor {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
     Named(NamedColor),
     Spec(Rgb),
