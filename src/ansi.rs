@@ -4,6 +4,8 @@ extern crate alloc;
 use alloc::{borrow::ToOwned, string::String, vec::Vec};
 use core::str;
 
+#[cfg(feature = "no_std")]
+use arrayvec::ArrayVec;
 use log::{debug, trace};
 
 use crate::{Parser, Perform};
@@ -31,6 +33,9 @@ fn xparse_color(color: &[u8]) -> Option<Rgb> {
 
 /// Parse colors in `rgb:r(rrr)/g(ggg)/b(bbb)` format.
 fn parse_rgb_color(color: &[u8]) -> Option<Rgb> {
+    #[cfg(feature = "no_std")]
+    let colors = str::from_utf8(color).ok()?.split('/').collect::<ArrayVec<[_; 4]>>();
+    #[cfg(not(feature = "no_std"))]
     let colors = str::from_utf8(color).ok()?.split('/').collect::<Vec<_>>();
 
     if colors.len() != 3 {
