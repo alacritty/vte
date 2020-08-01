@@ -1,7 +1,5 @@
 //! ANSI Terminal Stream Parsing.
 
-extern crate alloc;
-use alloc::{borrow::ToOwned, vec::Vec};
 use core::str;
 
 #[cfg(feature = "no_std")]
@@ -1164,8 +1162,11 @@ where
     }
 }
 
-fn attrs_from_sgr_parameters(parameters: &[i64]) -> Vec<Option<Attr>> {
+fn attrs_from_sgr_parameters(parameters: &[i64]) -> impl IntoIterator<Item = Option<Attr>> {
     let mut i = 0;
+    #[cfg(feature = "no_std")]
+    let mut attrs = ArrayVec::<[_; crate::MAX_PARAMS]>::new();
+    #[cfg(not(feature = "no_std"))]
     let mut attrs = Vec::with_capacity(parameters.len());
     loop {
         if i >= parameters.len() {
