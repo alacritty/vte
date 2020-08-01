@@ -818,7 +818,7 @@ where
                         let index = parse_number(chunk[0]);
                         let color = xparse_color(chunk[1]);
                         if let (Some(i), Some(c)) = (index, color) {
-                            self.handler.set_color(i as usize, c.into());
+                            self.handler.set_color(i as usize, c);
                             return;
                         }
                     }
@@ -842,7 +842,7 @@ where
                             }
 
                             if let Some(color) = xparse_color(param) {
-                                self.handler.set_color(index, color.into());
+                                self.handler.set_color(index, color);
                             } else if param == b"?" {
                                 self.handler.dynamic_color_sequence(
                                     writer,
