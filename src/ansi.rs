@@ -1,7 +1,8 @@
 //! ANSI Terminal Stream Parsing.
 
-use std::str;
-use std::string::String;
+extern crate alloc;
+use alloc::{borrow::ToOwned, string::String, vec::Vec};
+use core::str;
 
 use log::{debug, trace};
 
@@ -779,15 +780,7 @@ where
         let terminator = if bell_terminated { "\x07" } else { "\x1b\\" };
 
         fn unhandled(params: &[&[u8]]) {
-            let mut buf = String::new();
-            for items in params {
-                buf.push_str("[");
-                for item in *items {
-                    buf.push_str(&format!("{:?},", *item as char));
-                }
-                buf.push_str("],");
-            }
-            debug!("[unhandled osc_dispatch]: [{}] at line {}", &buf, line!());
+            debug!("[unhandled osc_dispatch]: params={:?} at line {}", &params, line!());
         }
 
         if params.is_empty() || params[0].is_empty() {
