@@ -802,7 +802,7 @@ where
                             title.push(';');
                         });
                         title.pop();
-                        self.handler.set_title(Some(&title));
+                        self.handler.set_title(Some(&title.trim()));
                     }
                     #[cfg(not(feature = "no_std"))]
                     {
@@ -812,7 +812,7 @@ where
                             .collect::<Vec<&str>>()
                             .join(";")
                             .to_owned();
-                        self.handler.set_title(Some(&title));
+                        self.handler.set_title(Some(&title.trim()));
                     }
                     return;
                 }
