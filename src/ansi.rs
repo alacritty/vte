@@ -1,4 +1,3 @@
-use std::io;
 use std::string::String;
 
 use log::trace;
@@ -18,7 +17,7 @@ pub struct Rgb {
 ///
 /// XXX Should probably not provide default impls for everything, but it makes
 /// writing specific handler impls for tests far easier.
-pub trait Handler {
+pub trait Handler<W> {
     /// OSC to set window title.
     fn set_title(&mut self, _: Option<String>) {}
 
@@ -49,10 +48,10 @@ pub trait Handler {
     /// Identify the terminal (should write back to the pty stream).
     ///
     /// TODO this should probably return an io::Result
-    fn identify_terminal<W: io::Write>(&mut self, _: &mut W, _intermediate: Option<char>) {}
+    fn identify_terminal(&mut self, _: &mut W, _intermediate: Option<char>) {}
 
     /// Report device status.
-    fn device_status<W: io::Write>(&mut self, _: &mut W, _: usize) {}
+    fn device_status(&mut self, _: &mut W, _: usize) {}
 
     /// Move cursor forward `cols`.
     fn move_forward(&mut self, _: Column) {}
@@ -181,7 +180,7 @@ pub trait Handler {
     fn set_color(&mut self, _: usize, _: Rgb) {}
 
     /// Write a foreground/background color escape sequence with the current color.
-    fn dynamic_color_sequence<W: io::Write>(&mut self, _: &mut W, _: u8, _: usize, _: &str) {}
+    fn dynamic_color_sequence(&mut self, _: &mut W, _: u8, _: usize, _: &str) {}
 
     /// Reset an indexed color to original value.
     fn reset_color(&mut self, _: usize) {}
