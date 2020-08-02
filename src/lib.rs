@@ -41,14 +41,17 @@ use arrayvec::ArrayVec;
 use utf8parse as utf8;
 
 mod definitions;
+mod params;
 mod table;
+
+pub use params::Params;
 
 use definitions::{unpack, Action, State};
 
 const MAX_INTERMEDIATES: usize = 2;
+const MAX_OSC_PARAMS: usize = 16;
 #[cfg(any(feature = "no_std", test))]
 const MAX_OSC_RAW: usize = 1024;
-const MAX_PARAMS: usize = 16;
 
 struct VtUtf8Receiver<'a, P: Perform>(&'a mut P, &'a mut State);
 
@@ -72,14 +75,13 @@ pub struct Parser {
     state: State,
     intermediates: [u8; MAX_INTERMEDIATES],
     intermediate_idx: usize,
-    params: [i64; MAX_PARAMS],
+    params: Params,
     param: i64,
-    num_params: usize,
     #[cfg(feature = "no_std")]
     osc_raw: ArrayVec<[u8; MAX_OSC_RAW]>,
     #[cfg(not(feature = "no_std"))]
     osc_raw: Vec<u8>,
-    osc_params: [(usize, usize); MAX_PARAMS],
+    osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
     ignoring: bool,
     utf8_parser: utf8::Parser,
@@ -92,8 +94,8 @@ impl Parser {
     }
 
     #[inline]
-    fn params(&self) -> &[i64] {
-        &self.params[..self.num_params]
+    fn params(&self) -> &Params {
+        &self.params
     }
 
     #[inline]
@@ -198,7 +200,7 @@ impl Parser {
     /// The aliasing is needed here for multiple slices into self.osc_raw
     #[inline]
     fn osc_dispatch<P: Perform>(&self, performer: &mut P, byte: u8) {
-        let mut slices: [MaybeUninit<&[u8]>; MAX_PARAMS] =
+        let mut slices: [MaybeUninit<&[u8]>; MAX_OSC_PARAMS] =
             unsafe { MaybeUninit::uninit().assume_init() };
 
         for (i, slice) in slices.iter_mut().enumerate().take(self.osc_num_params) {
@@ -219,11 +221,10 @@ impl Parser {
             Action::Print => performer.print(byte as char),
             Action::Execute => performer.execute(byte),
             Action::Hook => {
-                if self.num_params == MAX_PARAMS {
+                if self.params.is_full() {
                     self.ignoring = true;
                 } else {
-                    self.params[self.num_params] = self.param;
-                    self.num_params += 1;
+                    self.params.push(self.param);
                 }
 
                 performer.hook(self.params(), self.intermediates(), self.ignoring, byte as char);
@@ -247,8 +248,8 @@ impl Parser {
                 if byte == b';' {
                     let param_idx = self.osc_num_params;
                     match param_idx {
-                        // Only process up to MAX_PARAMS
-                        MAX_PARAMS => return,
+                        // Only process up to MAX_OSC_PARAMS
+                        MAX_OSC_PARAMS => return,
 
                         // First param is special - 0 to current byte index
                         0 => {
@@ -274,7 +275,7 @@ impl Parser {
 
                 match param_idx {
                     // Finish last parameter if not already maxed
-                    MAX_PARAMS => (),
+                    MAX_OSC_PARAMS => (),
 
                     // First param is special - 0 to current byte index
                     0 => {
@@ -294,11 +295,10 @@ impl Parser {
             },
             Action::Unhook => performer.unhook(),
             Action::CsiDispatch => {
-                if self.num_params == MAX_PARAMS {
+                if self.params.is_full() {
                     self.ignoring = true;
                 } else {
-                    self.params[self.num_params] = self.param;
-                    self.num_params += 1;
+                    self.params.push(self.param);
                 }
 
                 performer.csi_dispatch(
@@ -320,18 +320,17 @@ impl Parser {
                 }
             },
             Action::Param => {
-                // Completed a param
-                let idx = self.num_params;
-
-                if idx == MAX_PARAMS {
+                if self.params.is_full() {
                     self.ignoring = true;
                     return;
                 }
 
                 if byte == b';' {
-                    self.params[idx] = self.param;
+                    self.params.push(self.param);
                     self.param = 0;
-                    self.num_params += 1;
+                } else if byte == b':' {
+                    self.params.extend(self.param);
+                    self.param = 0;
                 } else {
                     // Continue collecting bytes into param
                     self.param = self.param.saturating_mul(10);
@@ -342,8 +341,9 @@ impl Parser {
                 // Reset everything on ESC/CSI/DCS entry
                 self.intermediate_idx = 0;
                 self.ignoring = false;
-                self.num_params = 0;
                 self.param = 0;
+
+                self.params.clear();
             },
             Action::BeginUtf8 => self.process_utf8(performer, byte),
             Action::Ignore => (),
@@ -378,7 +378,7 @@ pub trait Perform {
     ///
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
-    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, action: char);
+    fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char);
 
     /// Pass bytes as part of a device control string to the handle chosen in `hook`. C0 controls
     /// will also be passed to the handler.
@@ -398,7 +398,7 @@ pub trait Perform {
     /// The `ignore` flag indicates that either more than two intermediates arrived
     /// or the number of parameters exceeded the maximum supported length,
     /// and subsequent characters were ignored.
-    fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, action: char);
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char);
 
     /// The final character of an escape sequence has arrived.
     ///
@@ -439,7 +439,7 @@ mod tests {
 
         fn execute(&mut self, _: u8) {}
 
-        fn hook(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+        fn hook(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
 
         fn put(&mut self, _: u8) {}
 
@@ -452,7 +452,7 @@ mod tests {
             self.params = params.iter().map(|p| p.to_vec()).collect();
         }
 
-        fn csi_dispatch(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+        fn csi_dispatch(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
 
         fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
     }
@@ -461,7 +461,7 @@ mod tests {
     struct CsiDispatcher {
         dispatched_csi: bool,
         ignore: bool,
-        params: Vec<i64>,
+        params: Vec<Vec<i64>>,
         intermediates: Vec<u8>,
     }
 
@@ -470,7 +470,7 @@ mod tests {
 
         fn execute(&mut self, _: u8) {}
 
-        fn hook(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+        fn hook(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
 
         fn put(&mut self, _: u8) {}
 
@@ -478,11 +478,11 @@ mod tests {
 
         fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
 
-        fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, _: char) {
+        fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, _: char) {
             self.intermediates = intermediates.to_vec();
-            self.params = params.to_vec();
-            self.ignore = ignore;
             self.dispatched_csi = true;
+            self.params = params.iter().map(|subparam| subparam.to_vec()).collect();
+            self.ignore = ignore;
         }
 
         fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
@@ -503,9 +503,9 @@ mod tests {
 
         fn execute(&mut self, _: u8) {}
 
-        fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
+        fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
             self.intermediates = intermediates.to_vec();
-            self.params = params.to_vec();
+            self.params = params.iter().map(|x| x.to_vec()).flatten().collect();
             self.ignore = ignore;
             self.c = Some(c);
             self.dispatched_dcs = true;
@@ -521,7 +521,7 @@ mod tests {
 
         fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
 
-        fn csi_dispatch(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+        fn csi_dispatch(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
 
         fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
     }
@@ -539,7 +539,7 @@ mod tests {
 
         fn execute(&mut self, _: u8) {}
 
-        fn hook(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+        fn hook(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
 
         fn put(&mut self, _: u8) {}
 
@@ -547,7 +547,7 @@ mod tests {
 
         fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
 
-        fn csi_dispatch(&mut self, _: &[i64], _: &[u8], _: bool, _: char) {}
+        fn csi_dispatch(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
 
         fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
             self.intermediates = intermediates.to_vec();
@@ -588,17 +588,18 @@ mod tests {
 
     #[test]
     fn parse_osc_max_params() {
-        static INPUT: &[u8] = b"\x1b];;;;;;;;;;;;;;;;;\x1b";
+        let params = std::iter::repeat(";").take(params::MAX_PARAMS + 1).collect::<String>();
+        let input = format!("\x1b]{}\x1b", &params[..]).into_bytes();
         let mut dispatcher = OscDispatcher::default();
         let mut parser = Parser::new();
 
-        for byte in INPUT {
-            parser.advance(&mut dispatcher, *byte);
+        for byte in input {
+            parser.advance(&mut dispatcher, byte);
         }
 
         // Check that flag is set and thus osc_dispatch assertions ran.
         assert!(dispatcher.dispatched_osc);
-        assert_eq!(dispatcher.params.len(), MAX_PARAMS);
+        assert_eq!(dispatcher.params.len(), MAX_OSC_PARAMS);
         for param in dispatcher.params.iter() {
             assert_eq!(param.len(), 0);
         }
@@ -606,18 +607,19 @@ mod tests {
 
     #[test]
     fn parse_dcs_max_params() {
-        static INPUT: &[u8] = b"\x1bP1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;p\x1b";
+        let params = std::iter::repeat("1;").take(params::MAX_PARAMS + 1).collect::<String>();
+        let input = format!("\x1bP{}p", &params[..]).into_bytes();
         let mut dispatcher = DcsDispatcher::default();
         let mut parser = Parser::new();
 
-        for byte in INPUT {
-            parser.advance(&mut dispatcher, *byte);
+        for byte in input {
+            parser.advance(&mut dispatcher, byte);
         }
 
         // Check that flag is set and thus osc_dispatch assertions ran.
         assert!(dispatcher.ignore);
         assert!(dispatcher.dispatched_dcs);
-        assert_eq!(dispatcher.params.len(), MAX_PARAMS);
+        assert_eq!(dispatcher.params.len(), params::MAX_PARAMS);
         for param in dispatcher.params.iter() {
             assert_eq!(*param, 1);
         }
@@ -656,7 +658,7 @@ mod tests {
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS - 1 because the last semicolon is interpreted
         // as an implicit zero, making the total number of parameters MAX_PARAMS
-        let params = std::iter::repeat("1;").take(MAX_PARAMS - 1).collect::<String>();
+        let params = std::iter::repeat("1;").take(params::MAX_PARAMS - 1).collect::<String>();
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
         let mut dispatcher = CsiDispatcher::default();
@@ -668,7 +670,7 @@ mod tests {
 
         // Check that flag is set and thus csi_dispatch assertions ran.
         assert!(dispatcher.dispatched_csi);
-        assert_eq!(dispatcher.params.len(), MAX_PARAMS);
+        assert_eq!(dispatcher.params.len(), params::MAX_PARAMS);
         assert!(!dispatcher.ignore);
     }
 
@@ -677,7 +679,7 @@ mod tests {
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS because the last semicolon is interpreted
         // as an implicit zero, making the total number of parameters MAX_PARAMS + 1
-        let params = std::iter::repeat("1;").take(MAX_PARAMS).collect::<String>();
+        let params = std::iter::repeat("1;").take(params::MAX_PARAMS).collect::<String>();
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
         let mut dispatcher = CsiDispatcher::default();
@@ -689,7 +691,7 @@ mod tests {
 
         // Check that flag is set and thus csi_dispatch assertions ran.
         assert!(dispatcher.dispatched_csi);
-        assert_eq!(dispatcher.params.len(), MAX_PARAMS);
+        assert_eq!(dispatcher.params.len(), params::MAX_PARAMS);
         assert!(dispatcher.ignore);
     }
 
@@ -702,7 +704,7 @@ mod tests {
             parser.advance(&mut dispatcher, *byte);
         }
 
-        assert_eq!(dispatcher.params, &[4, 0]);
+        assert_eq!(dispatcher.params, &[[4], [0]]);
     }
 
     #[test]
@@ -716,7 +718,7 @@ mod tests {
         }
 
         // Check that flag is set and thus osc_dispatch assertions ran.
-        assert_eq!(dispatcher.params, &[0, 4]);
+        assert_eq!(dispatcher.params, &[[0], [4]]);
     }
 
     #[test]
@@ -730,7 +732,7 @@ mod tests {
             parser.advance(&mut dispatcher, *byte);
         }
 
-        assert_eq!(dispatcher.params, &[i64::MAX as i64]);
+        assert_eq!(dispatcher.params, &[[i64::MAX as i64]]);
     }
 
     #[test]
@@ -746,7 +748,23 @@ mod tests {
         assert!(dispatcher.dispatched_csi);
         assert!(!dispatcher.ignore);
         assert_eq!(dispatcher.intermediates, &[b'?']);
-        assert_eq!(dispatcher.params, &[1049]);
+        assert_eq!(dispatcher.params, &[[1049]]);
+    }
+
+    #[test]
+    fn csi_subparameters() {
+        static INPUT: &[u8] = b"\x1b[38:2:255:0:255;1m";
+        let mut dispatcher = CsiDispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert!(dispatcher.dispatched_csi);
+        assert!(!dispatcher.ignore);
+        assert_eq!(dispatcher.intermediates, &[]);
+        assert_eq!(dispatcher.params, &[vec![38, 2, 255, 0, 255], vec![1]]);
     }
 
     #[test]
@@ -887,7 +905,7 @@ mod bench {
             black_box(byte);
         }
 
-        fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
+        fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
             black_box((params, intermediates, ignore, c));
         }
 
@@ -901,7 +919,7 @@ mod bench {
             black_box((params, bell_terminated));
         }
 
-        fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
+        fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
             black_box((params, intermediates, ignore, c));
         }
 
