@@ -112,6 +112,11 @@ impl<'a> Iterator for ParamsIter<'a> {
 
         Some(param)
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.params.len() - self.index;
+        (remaining, Some(remaining))
+    }
 }
 
 impl Debug for Params {
