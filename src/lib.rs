@@ -44,7 +44,7 @@ mod definitions;
 mod params;
 mod table;
 
-pub use params::Params;
+pub use params::{Params, ParamsIter};
 
 use definitions::{unpack, Action, State};
 
