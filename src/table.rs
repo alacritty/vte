@@ -138,7 +138,6 @@ generate_state_changes!(state_changes, {
         0x30..=0x39 => (Anywhere, Param),
         0x3a..=0x3b => (Anywhere, Param),
         0x7f        => (Anywhere, Ignore),
-        0x3a        => (DcsIgnore, None),
         0x3c..=0x3f => (DcsIgnore, None),
         0x20..=0x2f => (DcsIntermediate, Collect),
         0x40..=0x7e => (DcsPassthrough, None),
