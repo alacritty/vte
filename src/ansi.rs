@@ -28,12 +28,12 @@ fn xparse_color(color: &[u8]) -> Option<Rgb> {
 
 /// Parse colors in `rgb:r(rrr)/g(ggg)/b(bbb)` format.
 fn parse_rgb_color(color: &[u8]) -> Option<Rgb> {
-    #[cfg(feature = "no_std")]
-    let colors = str::from_utf8(color).ok()?.split('/').collect::<ArrayVec<[_; 4]>>();
-    #[cfg(not(feature = "no_std"))]
-    let colors = str::from_utf8(color).ok()?.split('/').collect::<Vec<_>>();
+    let mut colors = str::from_utf8(color).ok()?.split('/');
+    let red = colors.next()?;
+    let green = colors.next()?;
+    let blue = colors.next()?;
 
-    if colors.len() != 3 {
+    if colors.next().is_some() {
         return None;
     }
 
@@ -44,7 +44,7 @@ fn parse_rgb_color(color: &[u8]) -> Option<Rgb> {
         Some((255 * value / max) as u8)
     };
 
-    Some(Rgb { r: scale(colors[0])?, g: scale(colors[1])?, b: scale(colors[2])? })
+    Some(Rgb { r: scale(red)?, g: scale(green)?, b: scale(blue)? })
 }
 
 /// Parse colors in `#r(rrr)g(ggg)b(bbb)` format.
