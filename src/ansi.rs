@@ -8,9 +8,6 @@ use log::{debug, trace};
 
 use crate::{Parser, Perform};
 
-type Line = usize;
-type Column = usize;
-
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 pub struct Rgb {
     pub r: u8,
@@ -155,22 +152,22 @@ pub trait Handler<W> {
     fn input(&mut self, _c: char) {}
 
     /// Set cursor to position.
-    fn goto(&mut self, _: Line, _: Column) {}
+    fn goto(&mut self, _row: usize, _col: usize) {}
 
     /// Set cursor to specific row.
-    fn goto_line(&mut self, _: Line) {}
+    fn goto_line(&mut self, _row: usize) {}
 
     /// Set cursor to specific column.
-    fn goto_col(&mut self, _: Column) {}
+    fn goto_col(&mut self, _col: usize) {}
 
     /// Insert blank characters in current line starting from cursor.
-    fn insert_blank(&mut self, _: Column) {}
+    fn insert_blank(&mut self, _col: usize) {}
 
     /// Move cursor up `rows`.
-    fn move_up(&mut self, _: Line) {}
+    fn move_up(&mut self, _row: usize) {}
 
     /// Move cursor down `rows`.
-    fn move_down(&mut self, _: Line) {}
+    fn move_down(&mut self, _row: usize) {}
 
     /// Identify the terminal (should write back to the pty stream).
     ///
@@ -181,16 +178,16 @@ pub trait Handler<W> {
     fn device_status(&mut self, _: &mut W, _: usize) {}
 
     /// Move cursor forward `cols`.
-    fn move_forward(&mut self, _: Column) {}
+    fn move_forward(&mut self, _col: usize) {}
 
     /// Move cursor backward `cols`.
-    fn move_backward(&mut self, _: Column) {}
+    fn move_backward(&mut self, _col: usize) {}
 
     /// Move cursor down `rows` and set to column 1.
-    fn move_down_and_cr(&mut self, _: Line) {}
+    fn move_down_and_cr(&mut self, _row: usize) {}
 
     /// Move cursor up `rows` and set to column 1.
-    fn move_up_and_cr(&mut self, _: Line) {}
+    fn move_up_and_cr(&mut self, _row: usize) {}
 
     /// Put `count` tabs.
     fn put_tab(&mut self, _count: i64) {}
@@ -219,28 +216,28 @@ pub trait Handler<W> {
     fn set_horizontal_tabstop(&mut self) {}
 
     /// Scroll up `rows` rows.
-    fn scroll_up(&mut self, _: Line) {}
+    fn scroll_up(&mut self, _row: usize) {}
 
     /// Scroll down `rows` rows.
-    fn scroll_down(&mut self, _: Line) {}
+    fn scroll_down(&mut self, _row: usize) {}
 
     /// Insert `count` blank lines.
-    fn insert_blank_lines(&mut self, _: Line) {}
+    fn insert_blank_lines(&mut self, _row: usize) {}
 
     /// Delete `count` lines.
-    fn delete_lines(&mut self, _: Line) {}
+    fn delete_lines(&mut self, _row: usize) {}
 
     /// Erase `count` chars in current line following cursor.
     ///
     /// Erase means resetting to the default state (default colors, no content,
     /// no mode flags).
-    fn erase_chars(&mut self, _: Column) {}
+    fn erase_chars(&mut self, _col: usize) {}
 
     /// Delete `count` chars.
     ///
     /// Deleting a character is like the delete key on the keyboard - everything
     /// to the right of the deleted things is shifted left.
-    fn delete_chars(&mut self, _: Column) {}
+    fn delete_chars(&mut self, _col: usize) {}
 
     /// Move backward `count` tabs.
     fn move_backward_tabs(&mut self, _count: i64) {}
