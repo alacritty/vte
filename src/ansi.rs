@@ -1,4 +1,4 @@
-//! ANSI Terminal Stream Parsing.
+//! Process parsed terminal streams into terminal actions.
 
 use core::str;
 
