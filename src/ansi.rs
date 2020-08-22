@@ -3,7 +3,7 @@
 use core::str;
 
 #[cfg(feature = "no_std")]
-use arrayvec::{ArrayString, ArrayVec};
+use arrayvec::ArrayVec;
 use log::{debug, trace};
 
 use crate::{Parser, Perform};
@@ -143,7 +143,7 @@ impl Processor {
 /// writing specific handler impls for tests far easier.
 pub trait Handler<W> {
     /// OSC to set window title.
-    fn set_title(&mut self, _: Option<&str>) {}
+    fn set_title(&mut self, _: Option<&[&[u8]]>) {}
 
     /// Set the cursor style.
     fn set_cursor_style(&mut self, _: Option<CursorStyle>) {}
@@ -791,26 +791,7 @@ where
             // Set window title.
             b"0" | b"2" => {
                 if params.len() >= 2 {
-                    #[cfg(feature = "no_std")]
-                    {
-                        let mut title = ArrayString::<[_; crate::MAX_OSC_RAW]>::new();
-                        params[1..].iter().flat_map(|x| str::from_utf8(x)).for_each(|s| {
-                            title.push_str(s);
-                            title.push(';');
-                        });
-                        title.pop();
-                        self.handler.set_title(Some(&title.trim()));
-                    }
-                    #[cfg(not(feature = "no_std"))]
-                    {
-                        let title = params[1..]
-                            .iter()
-                            .flat_map(|x| str::from_utf8(x))
-                            .collect::<Vec<&str>>()
-                            .join(";")
-                            .to_owned();
-                        self.handler.set_title(Some(&title.trim()));
-                    }
+                    self.handler.set_title(Some(&params[1..]));
                     return;
                 }
                 unhandled(params);
