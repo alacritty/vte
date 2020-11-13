@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+## 0.9.0
+
+- Added CSI subparameter support; required changes can be seen in Alacritty:
+    https://github.com/alacritty/alacritty/commit/576252294d09c1f52ec73bde03652349bdf5a529#diff-49ac9e6f6e6a855312bfcd393201f18ca53e6148c4a22a3a4949f1f9d1d137a8
+
 ## 0.8.0
 
 - Remove C1 ST support in OSCs, fixing OSCs with ST in the payload
