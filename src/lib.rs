@@ -731,7 +731,7 @@ mod tests {
             parser.advance(&mut dispatcher, *byte);
         }
 
-        assert_eq!(dispatcher.params, &[[u16::MAX as u16]]);
+        assert_eq!(dispatcher.params, &[[std::u16::MAX as u16]]);
     }
 
     #[test]
