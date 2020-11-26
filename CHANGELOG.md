@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Changed the type of CSI parameters from i64 to u16
+
 ## 0.9.0
 
 - Added CSI subparameter support; required changes can be seen in Alacritty:

@@ -76,7 +76,7 @@ pub struct Parser {
     intermediates: [u8; MAX_INTERMEDIATES],
     intermediate_idx: usize,
     params: Params,
-    param: i64,
+    param: u16,
     #[cfg(feature = "no_std")]
     osc_raw: ArrayVec<[u8; MAX_OSC_RAW]>,
     #[cfg(not(feature = "no_std"))]
@@ -334,7 +334,7 @@ impl Parser {
                 } else {
                     // Continue collecting bytes into param
                     self.param = self.param.saturating_mul(10);
-                    self.param = self.param.saturating_add((byte - b'0') as i64);
+                    self.param = self.param.saturating_add((byte - b'0') as u16);
                 }
             },
             Action::Clear => {
@@ -415,7 +415,6 @@ extern crate std;
 mod tests {
     use super::*;
 
-    use core::i64;
     use std::string::String;
     use std::vec::Vec;
 
@@ -461,7 +460,7 @@ mod tests {
     struct CsiDispatcher {
         dispatched_csi: bool,
         ignore: bool,
-        params: Vec<Vec<i64>>,
+        params: Vec<Vec<u16>>,
         intermediates: Vec<u8>,
     }
 
@@ -492,7 +491,7 @@ mod tests {
     struct DcsDispatcher {
         dispatched_dcs: bool,
         intermediates: Vec<u8>,
-        params: Vec<i64>,
+        params: Vec<u16>,
         ignore: bool,
         c: Option<char>,
         s: Vec<u8>,
@@ -732,7 +731,7 @@ mod tests {
             parser.advance(&mut dispatcher, *byte);
         }
 
-        assert_eq!(dispatcher.params, &[[i64::MAX as i64]]);
+        assert_eq!(dispatcher.params, &[[std::u16::MAX as u16]]);
     }
 
     #[test]

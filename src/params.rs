@@ -15,7 +15,7 @@ pub struct Params {
     subparams: [u8; MAX_PARAMS],
 
     /// All parameters and subparameters.
-    params: [i64; MAX_PARAMS],
+    params: [u16; MAX_PARAMS],
 
     /// Number of suparameters in the current parameter.
     current_subparams: u8,
@@ -58,7 +58,7 @@ impl Params {
 
     /// Add an additional parameter.
     #[inline]
-    pub(crate) fn push(&mut self, item: i64) {
+    pub(crate) fn push(&mut self, item: u16) {
         self.subparams[self.len - self.current_subparams as usize] = self.current_subparams + 1;
         self.params[self.len] = item;
         self.current_subparams = 0;
@@ -67,7 +67,7 @@ impl Params {
 
     /// Add an additional subparameter to the current parameter.
     #[inline]
-    pub(crate) fn extend(&mut self, item: i64) {
+    pub(crate) fn extend(&mut self, item: u16) {
         self.params[self.len] = item;
         self.current_subparams += 1;
         self.len += 1;
@@ -76,7 +76,7 @@ impl Params {
 
 impl<'a> IntoIterator for &'a Params {
     type IntoIter = ParamsIter<'a>;
-    type Item = &'a [i64];
+    type Item = &'a [u16];
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -96,7 +96,7 @@ impl<'a> ParamsIter<'a> {
 }
 
 impl<'a> Iterator for ParamsIter<'a> {
-    type Item = &'a [i64];
+    type Item = &'a [u16];
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.params.len() {
