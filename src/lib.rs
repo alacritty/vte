@@ -364,10 +364,10 @@ impl Parser {
 /// the future, consider checking archive.org.
 pub trait Perform {
     /// Draw a character to the screen and update states.
-    fn print(&mut self, _: char);
+    fn print(&mut self, _c: char) {}
 
     /// Execute a C0 or C1 control function.
-    fn execute(&mut self, byte: u8);
+    fn execute(&mut self, _byte: u8) {}
 
     /// Invoked when a final character arrives in first part of device control string.
     ///
@@ -378,33 +378,40 @@ pub trait Perform {
     ///
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
-    fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char);
+    fn hook(&mut self, _params: &Params, _intermediates: &[u8], _ignore: bool, _action: char) {}
 
     /// Pass bytes as part of a device control string to the handle chosen in `hook`. C0 controls
     /// will also be passed to the handler.
-    fn put(&mut self, byte: u8);
+    fn put(&mut self, _byte: u8) {}
 
     /// Called when a device control string is terminated.
     ///
     /// The previously selected handler should be notified that the DCS has
     /// terminated.
-    fn unhook(&mut self);
+    fn unhook(&mut self) {}
 
     /// Dispatch an operating system command.
-    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool);
+    fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {}
 
     /// A final character has arrived for a CSI sequence
     ///
     /// The `ignore` flag indicates that either more than two intermediates arrived
     /// or the number of parameters exceeded the maximum supported length,
     /// and subsequent characters were ignored.
-    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char);
+    fn csi_dispatch(
+        &mut self,
+        _params: &Params,
+        _intermediates: &[u8],
+        _ignore: bool,
+        _action: char,
+    ) {
+    }
 
     /// The final character of an escape sequence has arrived.
     ///
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
-    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8);
+    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
 }
 
 #[cfg(all(test, feature = "no_std"))]
@@ -434,26 +441,12 @@ mod tests {
 
     // All empty bodies except osc_dispatch
     impl Perform for OscDispatcher {
-        fn print(&mut self, _: char) {}
-
-        fn execute(&mut self, _: u8) {}
-
-        fn hook(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
-
-        fn put(&mut self, _: u8) {}
-
-        fn unhook(&mut self) {}
-
         fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
             // Set a flag so we know these assertions all run
             self.dispatched_osc = true;
             self.bell_terminated = bell_terminated;
             self.params = params.iter().map(|p| p.to_vec()).collect();
         }
-
-        fn csi_dispatch(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
-
-        fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
     }
 
     #[derive(Default)]
@@ -465,26 +458,12 @@ mod tests {
     }
 
     impl Perform for CsiDispatcher {
-        fn print(&mut self, _: char) {}
-
-        fn execute(&mut self, _: u8) {}
-
-        fn hook(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
-
-        fn put(&mut self, _: u8) {}
-
-        fn unhook(&mut self) {}
-
-        fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
-
         fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, _: char) {
             self.intermediates = intermediates.to_vec();
             self.dispatched_csi = true;
             self.params = params.iter().map(|subparam| subparam.to_vec()).collect();
             self.ignore = ignore;
         }
-
-        fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
     }
 
     #[derive(Default)]
@@ -498,10 +477,6 @@ mod tests {
     }
 
     impl Perform for DcsDispatcher {
-        fn print(&mut self, _: char) {}
-
-        fn execute(&mut self, _: u8) {}
-
         fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
             self.intermediates = intermediates.to_vec();
             self.params = params.iter().map(|x| x.to_vec()).flatten().collect();
@@ -517,12 +492,6 @@ mod tests {
         fn unhook(&mut self) {
             self.dispatched_dcs = true;
         }
-
-        fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
-
-        fn csi_dispatch(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
-
-        fn esc_dispatch(&mut self, _: &[u8], _: bool, _: u8) {}
     }
 
     #[derive(Default)]
@@ -534,20 +503,6 @@ mod tests {
     }
 
     impl Perform for EscDispatcher {
-        fn print(&mut self, _: char) {}
-
-        fn execute(&mut self, _: u8) {}
-
-        fn hook(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
-
-        fn put(&mut self, _: u8) {}
-
-        fn unhook(&mut self) {}
-
-        fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
-
-        fn csi_dispatch(&mut self, _: &Params, _: &[u8], _: bool, _: char) {}
-
         fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
             self.intermediates = intermediates.to_vec();
             self.ignore = ignore;
@@ -911,8 +866,6 @@ mod bench {
         fn put(&mut self, byte: u8) {
             black_box(byte);
         }
-
-        fn unhook(&mut self) {}
 
         fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
             black_box((params, bell_terminated));
