@@ -1,7 +1,7 @@
 CHANGELOG
 =========
 
-## Unreleased
+## 0.10.0
 
 - Changed the type of CSI parameters from i64 to u16
 - All methods of the `Perform` trait are now optional
