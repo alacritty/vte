@@ -1,12 +1,12 @@
 //! Parse input from stdin and log actions on stdout
 use std::io::{self, Read};
 
-use vte;
+use vte::{Params, Parser, Perform};
 
 /// A type implementing Perform that just logs actions
 struct Log;
 
-impl vte::Perform for Log {
+impl Perform for Log {
     fn print(&mut self, c: char) {
         println!("[print] {:?}", c);
     }
@@ -15,7 +15,7 @@ impl vte::Perform for Log {
         println!("[execute] {:02x}", byte);
     }
 
-    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
+    fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
         println!(
             "[hook] params={:?}, intermediates={:?}, ignore={:?}, char={:?}",
             params, intermediates, ignore, c
@@ -34,9 +34,9 @@ impl vte::Perform for Log {
         println!("[osc_dispatch] params={:?} bell_terminated={}", params, bell_terminated);
     }
 
-    fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, c: char) {
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
         println!(
-            "[csi_dispatch] params={:?}, intermediates={:?}, ignore={:?}, char={:?}",
+            "[csi_dispatch] params={:#?}, intermediates={:?}, ignore={:?}, char={:?}",
             params, intermediates, ignore, c
         );
     }
@@ -53,7 +53,7 @@ fn main() {
     let input = io::stdin();
     let mut handle = input.lock();
 
-    let mut statemachine = vte::Parser::new();
+    let mut statemachine = Parser::new();
     let mut performer = Log;
 
     let mut buf = [0; 2048];
