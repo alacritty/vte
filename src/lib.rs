@@ -165,28 +165,26 @@ impl Parser {
                 match self.state {
                     State::DcsPassthrough => {
                         self.perform_action(performer, Action::Unhook, byte);
-                        maybe_action!(action, byte);
                     },
                     State::OscString => {
                         self.perform_action(performer, Action::OscEnd, byte);
-                        maybe_action!(action, byte);
                     },
-                    _ => {
-                        maybe_action!(action, byte);
+                    _ => (),
+                }
 
-                        match state {
-                            State::CsiEntry | State::DcsEntry | State::Escape => {
-                                self.perform_action(performer, Action::Clear, byte);
-                            },
-                            State::DcsPassthrough => {
-                                self.perform_action(performer, Action::Hook, byte);
-                            },
-                            State::OscString => {
-                                self.perform_action(performer, Action::OscStart, byte);
-                            },
-                            _ => (),
-                        }
+                maybe_action!(action, byte);
+
+                match state {
+                    State::CsiEntry | State::DcsEntry | State::Escape => {
+                        self.perform_action(performer, Action::Clear, byte);
                     },
+                    State::DcsPassthrough => {
+                        self.perform_action(performer, Action::Hook, byte);
+                    },
+                    State::OscString => {
+                        self.perform_action(performer, Action::OscStart, byte);
+                    },
+                    _ => (),
                 }
 
                 // Assume the new state
