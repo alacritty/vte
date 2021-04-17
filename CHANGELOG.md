@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## 0.10.1
+
+- Fixed invalid intermediates when transitioning from DCS to ESC
+
 ## 0.10.0
 
 - Changed the type of CSI parameters from i64 to u16
