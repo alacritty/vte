@@ -2,6 +2,7 @@ use core::mem;
 
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
+#[repr(u8)]
 pub enum State {
     Anywhere = 0,
     CsiEntry = 1,
@@ -29,6 +30,7 @@ impl Default for State {
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
+#[repr(u8)]
 pub enum Action {
     None = 0,
     Clear = 1,
