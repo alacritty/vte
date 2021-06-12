@@ -651,10 +651,10 @@ mod tests {
                 assert_eq!(params.len(), 2);
                 assert_eq!(params[0], b"52");
 
-                #[cfg(not(feature = "no_std"))]
+                #[cfg(not(feature = "no_alloc"))]
                 assert_eq!(params[1].len(), NUM_BYTES + INPUT_END.len());
 
-                #[cfg(feature = "no_std")]
+                #[cfg(feature = "no_alloc")]
                 assert_eq!(params[1].len(), MAX_OSC_RAW - params[0].len());
             },
             _ => panic!("expected osc sequence"),
