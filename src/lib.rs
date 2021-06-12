@@ -34,10 +34,18 @@
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
 #![cfg_attr(feature = "no_std", no_std)]
 
+#[cfg(feature = "no_std")]
+extern crate alloc;
+
 use core::mem::MaybeUninit;
 
-#[cfg(feature = "no_std")]
+#[cfg(feature = "no_alloc")]
 use arrayvec::ArrayVec;
+#[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
+use alloc::vec::Vec;
+#[cfg(not(feature = "no_std"))]
+use std::vec::Vec;
+
 use utf8parse as utf8;
 
 mod definitions;
@@ -79,9 +87,9 @@ pub struct Parser {
     intermediate_idx: usize,
     params: Params,
     param: u16,
-    #[cfg(feature = "no_std")]
+    #[cfg(feature = "no_alloc")]
     osc_raw: ArrayVec<[u8; MAX_OSC_RAW]>,
-    #[cfg(not(feature = "no_std"))]
+    #[cfg(not(feature = "no_alloc"))]
     osc_raw: Vec<u8>,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
@@ -237,7 +245,7 @@ impl Parser {
                 self.osc_num_params = 0;
             },
             Action::OscPut => {
-                #[cfg(feature = "no_std")]
+                #[cfg(feature = "no_alloc")]
                 {
                     if self.osc_raw.is_full() {
                         return;
@@ -832,10 +840,10 @@ mod tests {
         assert_eq!(dispatcher.params.len(), 2);
         assert_eq!(dispatcher.params[0], b"52");
 
-        #[cfg(not(feature = "no_std"))]
+        #[cfg(not(feature = "no_alloc"))]
         assert_eq!(dispatcher.params[1].len(), NUM_BYTES + INPUT_END.len());
 
-        #[cfg(feature = "no_std")]
+        #[cfg(feature = "no_alloc")]
         assert_eq!(dispatcher.params[1].len(), MAX_OSC_RAW - dispatcher.params[0].len());
     }
 }
