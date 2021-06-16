@@ -4,7 +4,7 @@ use core::convert::TryFrom;
 use core::{iter, str};
 
 #[cfg(not(feature = "no_std"))]
-use core::time::{Duration, Instant};
+use str::time::{Duration, Instant};
 
 #[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
 use alloc::string::String;
@@ -34,9 +34,11 @@ pub struct Rgb {
 const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// Maximum number of bytes read in one synchronized update (2MiB).
+#[cfg(not(feature = "no_alloc"))]
 const SYNC_BUFFER_SIZE: usize = 0x20_0000;
 
 /// Maximum number of bytes read in one synchronized update (4Kib) when no_alloc feature is set.
+#[cfg(feature = "no_alloc")]
 const SYNC_BUFFER_SIZE_NO_ALLOC: usize = 0x4000;
 
 /// Number of bytes in the synchronized update DCS sequence before the passthrough parameters.
@@ -257,10 +259,14 @@ impl Processor {
         let offset = len.saturating_sub(SYNC_ESCAPE_START_LEN);
         let end = &self.state.sync_state.buffer[offset..];
 
+        let sync_buffer_size: usize;
+        #[cfg(feature = "no_alloc")] { sync_buffer_size = SYNC_BUFFER_SIZE_NO_ALLOC };
+        #[cfg(not(feature = "no_alloc"))] { sync_buffer_size = SYNC_BUFFER_SIZE };
+
         // Check for extension/termination of the synchronized update.
         if end == SYNC_START_ESCAPE_START {
             self.state.sync_state.pending_dcs = Some(Dcs::SyncStart);
-        } else if end == SYNC_END_ESCAPE_START || len >= SYNC_BUFFER_SIZE - 1 {
+        } else if end == SYNC_END_ESCAPE_START || len >= sync_buffer_size - 1 {
             self.state.sync_state.pending_dcs = Some(Dcs::SyncEnd);
         }
     }
@@ -287,7 +293,6 @@ impl Processor {
                 Some(Dcs::SyncEnd) => self.stop_sync(handler, writer),
                 None => (),
             },
-            _ => {},
         }
     }
 }
@@ -1232,7 +1237,7 @@ where
                 let x = next_param_or(1) as usize;
                 handler.goto(y - 1, x - 1);
             },
-            ('h', intermediate) => {
+            ('h', _intermediate) => {
                 for param in params_iter.map(|param| param[0]) {
                     match Mode::from_primitive(intermediates.get(0), param as i64) {
                         Some(mode) => handler.set_mode(mode),
@@ -1269,7 +1274,7 @@ where
                 handler.clear_line(mode);
             },
             ('L', None) => handler.insert_blank_lines(next_param_or(1) as usize),
-            ('l', intermediate) => {
+            ('l', _intermediate) => {
                 for param in params_iter.map(|param| param[0]) {
                     match Mode::from_primitive(intermediates.get(0), param as i64) {
                         Some(mode) => handler.unset_mode(mode),

@@ -60,7 +60,7 @@ use definitions::{unpack, Action, State};
 
 const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_PARAMS: usize = 16;
-#[cfg(any(feature = "no_std", test))]
+#[cfg(any(feature = "no_alloc", test))]
 const MAX_OSC_RAW: usize = 1024;
 
 struct VtUtf8Receiver<'a, P: Perform>(&'a mut P, &'a mut State);
