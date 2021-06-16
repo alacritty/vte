@@ -1,21 +1,25 @@
 //! Process parsed terminal streams into terminal actions.
 
-use core::{str, iter};
 use core::convert::TryFrom;
+use core::{iter, str};
 
 #[cfg(not(feature = "no_std"))]
-use core::time::Duration;
+use core::time::{Duration, Instant};
 
-#[cfg(not(feature = "no_alloc"))]
-use alloc::vec::Vec;
-#[cfg(not(feature = "no_alloc"))]
+#[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
 use alloc::string::String;
+#[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
+use alloc::vec::Vec;
+#[cfg(not(feature = "no_std"))]
+use std::string::String;
+#[cfg(not(feature = "no_std"))]
+use std::vec::Vec;
 
 #[cfg(feature = "no_alloc")]
 use arrayvec::ArrayVec;
 use log::{debug, trace};
 
-use crate::{Parser, Perform, Params, ParamsIter};
+use crate::{Params, ParamsIter, Parser, Perform};
 use core::option::Option::Some;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
@@ -24,7 +28,6 @@ pub struct Rgb {
     pub g: u8,
     pub b: u8,
 }
-
 
 /// Maximum time before a synchronized update is aborted.
 #[cfg(not(feature = "no_std"))]
@@ -159,7 +162,7 @@ impl Default for SyncState {
             pending_dcs: None,
             #[cfg(not(feature = "no_std"))]
             timeout: None,
-            in_sync: false
+            in_sync: false,
         }
     }
 }
@@ -187,8 +190,8 @@ impl Processor {
 
     #[inline]
     pub fn advance<H, W>(&mut self, handler: &mut H, byte: u8, writer: &mut W)
-        where
-            H: Handler<W>,
+    where
+        H: Handler<W>,
     {
         if !self.state.sync_state.in_sync {
             let mut performer = Performer::new(&mut self.state, handler, writer);
@@ -200,8 +203,8 @@ impl Processor {
 
     /// End a synchronized update.
     pub fn stop_sync<H, W>(&mut self, handler: &mut H, writer: &mut W)
-        where
-            H: Handler<W>,
+    where
+        H: Handler<W>,
     {
         // Process all synchronized bytes.
         for i in 0..self.state.sync_state.buffer.len() {
@@ -235,8 +238,8 @@ impl Processor {
     /// Process a new byte during a synchronized update.
     #[cold]
     fn advance_sync<H, W>(&mut self, handler: &mut H, writer: &mut W, byte: u8)
-        where
-            H: Handler<W>,
+    where
+        H: Handler<W>,
     {
         self.state.sync_state.buffer.push(byte);
 
@@ -264,8 +267,8 @@ impl Processor {
 
     /// Parse the DCS termination sequence for synchronized updates.
     fn advance_sync_dcs_end<H, W>(&mut self, handler: &mut H, writer: &mut W, byte: u8)
-        where
-            H: Handler<W>,
+    where
+        H: Handler<W>,
     {
         match byte {
             // Ignore DCS passthrough characters.
@@ -280,7 +283,7 @@ impl Processor {
                         self.state.sync_state.timeout = Some(Instant::now() + SYNC_UPDATE_TIMEOUT);
                     }
                     self.state.sync_state.in_sync = true;
-                },
+                }
                 Some(Dcs::SyncEnd) => self.stop_sync(handler, writer),
                 None => (),
             },
@@ -295,9 +298,9 @@ impl Default for Processor {
             state: ProcessorState {
                 preceding_char: None,
                 dcs: None,
-                sync_state: SyncState::default()
+                sync_state: SyncState::default(),
             },
-            parser: Parser::new()
+            parser: Parser::new(),
         }
     }
 }
@@ -333,9 +336,12 @@ pub trait Handler<W> {
     fn set_title(&mut self, params: Option<&[&[u8]]>) {
         #[cfg(not(feature = "no_alloc"))]
         {
+            #[cfg(feature = "no_std")]
             use alloc::borrow::ToOwned;
+            #[cfg(not(feature = "no_std"))]
+            use std::borrow::ToOwned;
 
-            self.set_title_utf(params.map(|params|
+            self.set_title_utf(params.map(|params| {
                 params[1..]
                     .iter()
                     .flat_map(|x| str::from_utf8(x))
@@ -343,7 +349,7 @@ pub trait Handler<W> {
                     .join(";")
                     .trim()
                     .to_owned()
-            ))
+            }))
         }
     }
 
@@ -663,7 +669,7 @@ impl Mode {
                 _ => {
                     trace!("[unimplemented] primitive mode: {}", num);
                     return None;
-                },
+                }
             })
         } else {
             Some(match num {
@@ -990,7 +996,7 @@ where
                 if params.iter().next().map_or(false, |param| param[0] == 1) {
                     self.state.dcs = Some(Dcs::SyncStart);
                 }
-            },
+            }
             _ => debug!(
                 "[unhandled hook] params={:?}, ints: {:?}, ignore: {:?}, action: {:?}",
                 params, intermediates, ignore, action
@@ -1012,7 +1018,7 @@ where
                     self.state.sync_state.timeout = Some(Instant::now() + SYNC_UPDATE_TIMEOUT);
                 }
                 self.state.sync_state.in_sync = true;
-            },
+            }
             Some(Dcs::SyncEnd) => (),
             _ => debug!("[unhandled unhook]"),
         }
@@ -1040,7 +1046,7 @@ where
                     return;
                 }
                 unhandled(params);
-            },
+            }
 
             // Set color index.
             b"4" => {
@@ -1055,7 +1061,7 @@ where
                     }
                 }
                 unhandled(params);
-            },
+            }
 
             // Get/set Foreground, Background, Cursor colors.
             b"10" | b"11" | b"12" => {
@@ -1090,7 +1096,7 @@ where
                     }
                 }
                 unhandled(params);
-            },
+            }
 
             // Set cursor style.
             b"50" => {
@@ -1108,7 +1114,7 @@ where
                     return;
                 }
                 unhandled(params);
-            },
+            }
 
             // Set clipboard.
             b"52" => {
@@ -1121,7 +1127,7 @@ where
                     b"?" => self.handler.clipboard_load(*clipboard, terminator),
                     base64 => self.handler.clipboard_store(*clipboard, base64),
                 }
-            },
+            }
 
             // Reset color index.
             b"104" => {
@@ -1140,7 +1146,7 @@ where
                         None => unhandled(params),
                     }
                 }
-            },
+            }
 
             // Reset foreground color.
             b"110" => self.handler.reset_color(NamedColor::Foreground as usize),
@@ -1185,15 +1191,12 @@ where
             params_iter.next().map(|param| param[0]).filter(|&param| param != 0).unwrap_or(default)
         };
 
-
         match (action, intermediates.get(0)) {
             ('@', None) => handler.insert_blank(next_param_or(1) as usize),
             ('A', None) => {
                 handler.move_up(next_param_or(1) as usize);
-            },
-            ('B', None) | ('e', None) => {
-                handler.move_down(next_param_or(1) as usize)
-            },
+            }
+            ('B', None) | ('e', None) => handler.move_down(next_param_or(1) as usize),
             ('b', None) => {
                 if let Some(c) = self.state.preceding_char {
                     for _ in 0..next_param_or(1) as usize {
@@ -1202,20 +1205,16 @@ where
                 } else {
                     debug!("tried to repeat with no preceding char");
                 }
-            },
-            ('C', None) | ('a', None) => {
-                handler.move_forward(next_param_or(1) as usize)
-            },
+            }
+            ('C', None) | ('a', None) => handler.move_forward(next_param_or(1) as usize),
             ('c', intermediate) if next_param_or(0) == 0 => {
                 handler.identify_terminal(writer, intermediate.map(|&i| i as char))
-            },
+            }
             ('D', None) => handler.move_backward(next_param_or(1) as usize),
             ('d', None) => handler.goto_line(next_param_or(1) as usize - 1),
             ('E', None) => handler.move_down_and_cr(next_param_or(1) as usize),
             ('F', None) => handler.move_up_and_cr(next_param_or(1) as usize),
-            ('G', None) | ('`', None) => {
-                handler.goto_col(next_param_or(1) as usize - 1)
-            },
+            ('G', None) | ('`', None) => handler.goto_col(next_param_or(1) as usize - 1),
             ('g', None) => {
                 let mode = match next_param_or(0) {
                     0 => TabulationClearMode::Current,
@@ -1223,16 +1222,16 @@ where
                     _ => {
                         unhandled!();
                         return;
-                    },
+                    }
                 };
 
                 handler.clear_tabs(mode);
-            },
+            }
             ('H', None) | ('f', None) => {
                 let y = next_param_or(1) as usize;
                 let x = next_param_or(1) as usize;
                 handler.goto(y - 1, x - 1);
-            },
+            }
             ('h', intermediate) => {
                 for param in params_iter.map(|param| param[0]) {
                     match Mode::from_primitive(intermediates.get(0), param as i64) {
@@ -1240,7 +1239,7 @@ where
                         None => unhandled!(),
                     }
                 }
-            },
+            }
             ('I', None) => handler.move_forward_tabs(next_param_or(1) as i64),
             ('J', None) => {
                 let mode = match next_param_or(0) {
@@ -1251,11 +1250,11 @@ where
                     _ => {
                         unhandled!();
                         return;
-                    },
+                    }
                 };
 
                 handler.clear_screen(mode);
-            },
+            }
             ('K', None) => {
                 let mode = match next_param_or(0) {
                     0 => LineClearMode::Right,
@@ -1264,11 +1263,11 @@ where
                     _ => {
                         unhandled!();
                         return;
-                    },
+                    }
                 };
 
                 handler.clear_line(mode);
-            },
+            }
             ('L', None) => handler.insert_blank_lines(next_param_or(1) as usize),
             ('l', intermediate) => {
                 for param in params_iter.map(|param| param[0]) {
@@ -1277,7 +1276,7 @@ where
                         None => unhandled!(),
                     }
                 }
-            },
+            }
             ('M', None) => handler.delete_lines(next_param_or(1) as usize),
             ('m', None) => {
                 if params.is_empty() {
@@ -1290,10 +1289,8 @@ where
                         }
                     }
                 }
-            },
-            ('n', None) => {
-                handler.device_status(writer, next_param_or(0) as usize)
-            },
+            }
+            ('n', None) => handler.device_status(writer, next_param_or(0) as usize),
             ('P', None) => handler.delete_chars(next_param_or(1) as usize),
             ('q', Some(b' ')) => {
                 // DECSCUSR (CSI Ps SP q) -- Set Cursor Style.
@@ -1306,20 +1303,20 @@ where
                     _ => {
                         unhandled!();
                         return;
-                    },
+                    }
                 };
                 let cursor_style =
                     shape.map(|shape| CursorStyle { shape, blinking: cursor_style_id % 2 == 1 });
 
                 handler.set_cursor_style(cursor_style);
-            },
+            }
             ('r', None) => {
                 let top = next_param_or(1) as usize;
                 let bottom =
                     params_iter.next().map(|param| param[0] as usize).filter(|&param| param != 0);
 
                 handler.set_scrolling_region(top, bottom);
-            },
+            }
             ('S', None) => handler.scroll_up(next_param_or(1) as usize),
             ('s', None) => handler.save_cursor_position(),
             ('T', None) => handler.scroll_down(next_param_or(1) as usize),
@@ -1358,7 +1355,7 @@ where
                     _ => {
                         unhandled!();
                         return;
-                    },
+                    }
                 };
                 self.handler.configure_charset(index, $charset)
             }};
@@ -1370,14 +1367,14 @@ where
             (b'E', None) => {
                 self.handler.linefeed();
                 self.handler.carriage_return();
-            },
+            }
             (b'H', None) => self.handler.set_horizontal_tabstop(),
             (b'M', None) => self.handler.reverse_index(),
             (b'Z', None) => self.handler.identify_terminal(self.writer, None),
             (b'c', None) => self.handler.reset_state(),
             (b'0', intermediate) => {
                 configure_charset!(StandardCharset::SpecialCharacterAndLineDrawing, intermediate)
-            },
+            }
             (b'7', None) => self.handler.save_cursor_position(),
             (b'8', Some(b'#')) => self.handler.decaln(),
             (b'8', None) => self.handler.restore_cursor_position(),
@@ -1390,7 +1387,9 @@ where
     }
 }
 
-fn attrs_from_sgr_parameters(params: &mut ParamsIter<'_>) -> impl IntoIterator<Item = Option<Attr>> {
+fn attrs_from_sgr_parameters(
+    params: &mut ParamsIter<'_>,
+) -> impl IntoIterator<Item = Option<Attr>> {
     #[cfg(feature = "no_alloc")]
     let mut attrs = ArrayVec::<[_; crate::params::MAX_PARAMS]>::new();
     #[cfg(not(feature = "no_alloc"))]
@@ -1428,14 +1427,14 @@ fn attrs_from_sgr_parameters(params: &mut ParamsIter<'_>) -> impl IntoIterator<I
             [38] => {
                 let mut iter = params.map(|param| param[0]);
                 parse_sgr_color(&mut iter).map(Attr::Foreground)
-            },
+            }
             [38, params @ ..] => {
                 let rgb_start = if params.len() > 4 { 2 } else { 1 };
                 let rgb_iter = params[rgb_start..].iter().copied();
                 let mut iter = iter::once(params[0]).chain(rgb_iter);
 
                 parse_sgr_color(&mut iter).map(Attr::Foreground)
-            },
+            }
             [39] => Some(Attr::Foreground(Color::Named(NamedColor::Foreground))),
             [40] => Some(Attr::Background(Color::Named(NamedColor::Black))),
             [41] => Some(Attr::Background(Color::Named(NamedColor::Red))),
@@ -1448,14 +1447,14 @@ fn attrs_from_sgr_parameters(params: &mut ParamsIter<'_>) -> impl IntoIterator<I
             [48] => {
                 let mut iter = params.map(|param| param[0]);
                 parse_sgr_color(&mut iter).map(Attr::Background)
-            },
+            }
             [48, params @ ..] => {
                 let rgb_start = if params.len() > 4 { 2 } else { 1 };
                 let rgb_iter = params[rgb_start..].iter().copied();
                 let mut iter = iter::once(params[0]).chain(rgb_iter);
 
                 parse_sgr_color(&mut iter).map(Attr::Background)
-            },
+            }
             [49] => Some(Attr::Background(Color::Named(NamedColor::Background))),
             [90] => Some(Attr::Foreground(Color::Named(NamedColor::BrightBlack))),
             [91] => Some(Attr::Foreground(Color::Named(NamedColor::BrightRed))),
