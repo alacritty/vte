@@ -34,7 +34,7 @@
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
 #![cfg_attr(feature = "no_std", no_std)]
 
-#[cfg(feature = "no_std")]
+#[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
 extern crate alloc;
 
 use core::mem::MaybeUninit;
