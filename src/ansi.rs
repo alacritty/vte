@@ -4,7 +4,7 @@ use core::convert::TryFrom;
 use core::{iter, str};
 
 #[cfg(not(feature = "no_std"))]
-use str::time::{Duration, Instant};
+use std::time::{Duration, Instant};
 
 #[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
 use alloc::string::String;
@@ -338,13 +338,12 @@ impl<'a, H: Handler<W> + 'a, W> Performer<'a, H, W> {
 /// writing specific handler impls for tests far easier.
 pub trait Handler<W> {
     /// OSC to set window title.
+    #[allow(unused_variables)]
     fn set_title(&mut self, params: Option<&[&[u8]]>) {
         #[cfg(not(feature = "no_alloc"))]
         {
             #[cfg(feature = "no_std")]
             use alloc::borrow::ToOwned;
-            #[cfg(not(feature = "no_std"))]
-            use std::borrow::ToOwned;
 
             self.set_title_utf(params.map(|params| {
                 params[1..]
