@@ -48,12 +48,12 @@ use std::vec::Vec;
 
 use utf8parse as utf8;
 
+#[cfg(feature = "ansi")]
+pub mod ansi;
+
 mod definitions;
 mod params;
 mod table;
-
-#[cfg(feature = "ansi")]
-pub mod ansi;
 pub use params::{Params, ParamsIter};
 
 use definitions::{unpack, Action, State};
