@@ -20,7 +20,7 @@ utf8parse = { version = "0.2.0", path = "utf8parse" }
 
 [features]
 ansi = ["log"]
-default = ["no_std"]
+default = ["no_std", "no_alloc"]
 no_alloc = ["arrayvec", "no_std"]
 no_std = []
 nightly = ["utf8parse/nightly"]
