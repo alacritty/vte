@@ -34,17 +34,15 @@
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
 #![cfg_attr(feature = "no_std", no_std)]
 
-#[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
+#[cfg(any(feature = "alloc", not(feature = "no_std")))]
 extern crate alloc;
 
 use core::mem::MaybeUninit;
 
-#[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
+#[cfg(any(feature = "alloc", not(feature = "no_std")))]
 use alloc::vec::Vec;
-#[cfg(feature = "no_alloc")]
+#[cfg(all(not(feature = "alloc"), feature = "no_std"))]
 use arrayvec::ArrayVec;
-#[cfg(not(feature = "no_std"))]
-use std::vec::Vec;
 
 use utf8parse as utf8;
 
@@ -60,7 +58,7 @@ use definitions::{unpack, Action, State};
 
 const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_PARAMS: usize = 16;
-#[cfg(any(feature = "no_alloc", test))]
+#[cfg(any(all(not(feature = "alloc"), feature = "no_std"), test))]
 const MAX_OSC_RAW: usize = 1024;
 
 struct VtUtf8Receiver<'a, P: Perform>(&'a mut P, &'a mut State);
@@ -87,9 +85,9 @@ pub struct Parser {
     intermediate_idx: usize,
     params: Params,
     param: u16,
-    #[cfg(feature = "no_alloc")]
+    #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
     osc_raw: ArrayVec<[u8; MAX_OSC_RAW]>,
-    #[cfg(not(feature = "no_alloc"))]
+    #[cfg(any(feature = "alloc", not(feature = "no_std")))]
     osc_raw: Vec<u8>,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
@@ -243,7 +241,7 @@ impl Parser {
                 self.osc_num_params = 0;
             },
             Action::OscPut => {
-                #[cfg(feature = "no_alloc")]
+                #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
                 {
                     if self.osc_raw.is_full() {
                         return;
@@ -651,10 +649,10 @@ mod tests {
                 assert_eq!(params.len(), 2);
                 assert_eq!(params[0], b"52");
 
-                #[cfg(not(feature = "no_alloc"))]
+                #[cfg(any(feature = "alloc", not(feature = "no_std")))]
                 assert_eq!(params[1].len(), NUM_BYTES + INPUT_END.len());
 
-                #[cfg(feature = "no_alloc")]
+                #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
                 assert_eq!(params[1].len(), MAX_OSC_RAW - params[0].len());
             },
             _ => panic!("expected osc sequence"),

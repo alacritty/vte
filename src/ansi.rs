@@ -6,16 +6,12 @@ use core::{iter, str};
 #[cfg(not(feature = "no_std"))]
 use std::time::{Duration, Instant};
 
-#[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
+#[cfg(any(feature = "alloc", not(feature = "no_std")))]
 use alloc::string::String;
-#[cfg(all(not(feature = "no_alloc"), feature = "no_std"))]
+#[cfg(any(feature = "alloc", not(feature = "no_std")))]
 use alloc::vec::Vec;
-#[cfg(not(feature = "no_std"))]
-use std::string::String;
-#[cfg(not(feature = "no_std"))]
-use std::vec::Vec;
 
-#[cfg(feature = "no_alloc")]
+#[cfg(all(not(feature = "alloc"), feature = "no_std"))]
 use arrayvec::ArrayVec;
 use log::{debug, trace};
 
@@ -34,11 +30,11 @@ pub struct Rgb {
 const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// Maximum number of bytes read in one synchronized update (2MiB).
-#[cfg(not(feature = "no_alloc"))]
+#[cfg(any(feature = "alloc", not(feature = "no_std")))]
 const SYNC_BUFFER_SIZE: usize = 0x20_0000;
 
 /// Maximum number of bytes read in one synchronized update (4Kib) when no_alloc feature is set.
-#[cfg(feature = "no_alloc")]
+#[cfg(all(not(feature = "alloc"), feature = "no_std"))]
 const SYNC_BUFFER_SIZE_NO_ALLOC: usize = 0x4000;
 
 /// Number of bytes in the synchronized update DCS sequence before the passthrough parameters.
@@ -146,20 +142,20 @@ struct SyncState {
     pending_dcs: Option<Dcs>,
 
     /// Bytes read during the synchronized update.
-    #[cfg(not(feature = "no_alloc"))]
+    #[cfg(any(feature = "alloc", not(feature = "no_std")))]
     buffer: Vec<u8>,
 
     /// Bytes read during the synchronized update.
-    #[cfg(feature = "no_alloc")]
+    #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
     buffer: ArrayVec<[u8; SYNC_BUFFER_SIZE_NO_ALLOC]>,
 }
 
 impl Default for SyncState {
     fn default() -> Self {
         Self {
-            #[cfg(feature = "no_alloc")]
+            #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
             buffer: ArrayVec::new(),
-            #[cfg(not(feature = "no_alloc"))]
+            #[cfg(any(feature = "alloc", not(feature = "no_std")))]
             buffer: Vec::with_capacity(SYNC_BUFFER_SIZE),
             pending_dcs: None,
             #[cfg(not(feature = "no_std"))]
@@ -260,8 +256,14 @@ impl Processor {
         let end = &self.state.sync_state.buffer[offset..];
 
         let sync_buffer_size: usize;
-        #[cfg(feature = "no_alloc")] { sync_buffer_size = SYNC_BUFFER_SIZE_NO_ALLOC };
-        #[cfg(not(feature = "no_alloc"))] { sync_buffer_size = SYNC_BUFFER_SIZE };
+        #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+        {
+            sync_buffer_size = SYNC_BUFFER_SIZE_NO_ALLOC
+        };
+        #[cfg(any(feature = "alloc", not(feature = "no_std")))]
+        {
+            sync_buffer_size = SYNC_BUFFER_SIZE
+        };
 
         // Check for extension/termination of the synchronized update.
         if end == SYNC_START_ESCAPE_START {
@@ -340,7 +342,7 @@ pub trait Handler<W> {
     /// OSC to set window title.
     #[allow(unused_variables)]
     fn set_title(&mut self, params: Option<&[&[u8]]>) {
-        #[cfg(not(feature = "no_alloc"))]
+        #[cfg(any(feature = "alloc", not(feature = "no_std")))]
         {
             #[cfg(feature = "no_std")]
             use alloc::borrow::ToOwned;
@@ -358,7 +360,7 @@ pub trait Handler<W> {
     }
 
     /// OSC to set window title.
-    #[cfg(not(feature = "no_alloc"))]
+    #[cfg(any(feature = "alloc", not(feature = "no_std")))]
     fn set_title_utf(&mut self, _: Option<String>) {}
 
     /// Set the cursor style.
@@ -1394,9 +1396,9 @@ where
 fn attrs_from_sgr_parameters(
     params: &mut ParamsIter<'_>,
 ) -> impl IntoIterator<Item = Option<Attr>> {
-    #[cfg(feature = "no_alloc")]
+    #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
     let mut attrs = ArrayVec::<[_; crate::params::MAX_PARAMS]>::new();
-    #[cfg(not(feature = "no_alloc"))]
+    #[cfg(any(feature = "alloc", not(feature = "no_std")))]
     let mut attrs = Vec::with_capacity(params.size_hint().0);
     while let Some(param) = params.next() {
         let attr = match param {
