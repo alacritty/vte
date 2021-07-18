@@ -3,8 +3,7 @@
 use core::convert::TryFrom;
 use core::{iter, str};
 
-#[cfg(not(feature = "no_std"))]
-use std::time::{Duration, Instant};
+use core::time::Duration;
 
 #[cfg(any(feature = "alloc", not(feature = "no_std")))]
 use alloc::string::String;
@@ -26,7 +25,6 @@ pub struct Rgb {
 }
 
 /// Maximum time before a synchronized update is aborted.
-#[cfg(not(feature = "no_std"))]
 const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// Maximum number of bytes read in one synchronized update (2MiB).
@@ -119,7 +117,7 @@ fn parse_number(input: &[u8]) -> Option<u8> {
 }
 
 /// Internal state for VTE processor.
-struct ProcessorState {
+struct ProcessorState<T: TimeProvider> {
     /// Last processed character for repetition.
     preceding_char: Option<char>,
 
@@ -127,14 +125,29 @@ struct ProcessorState {
     dcs: Option<Dcs>,
 
     /// State for synchronized terminal updates.
-    sync_state: SyncState,
+    sync_state: SyncState<T>,
+}
+
+/// Current timestamp provider
+pub trait TimeProvider {
+    /// Get current timestamp from unix epoch in milliseconds
+    fn now(&self) -> u128;
+}
+
+/// Time provider which always returns 0
+#[derive(Default)]
+pub struct NullTimeProvider {}
+
+impl TimeProvider for NullTimeProvider {
+    fn now(&self) -> u128 {
+        0
+    }
 }
 
 #[derive(Debug)]
-struct SyncState {
-    /// Expiration time of the synchronized update.
-    #[cfg(not(feature = "no_std"))]
-    timeout: Option<Instant>,
+struct SyncState<T: TimeProvider> {
+    /// Expiration time (in milliseconds since unix epoch) of the synchronized update.
+    timeout: Option<u128>,
 
     in_sync: bool,
 
@@ -148,19 +161,22 @@ struct SyncState {
     /// Bytes read during the synchronized update.
     #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
     buffer: ArrayVec<[u8; SYNC_BUFFER_SIZE_NO_ALLOC]>,
+
+    /// Time provider
+    time_provider: T,
 }
 
-impl Default for SyncState {
-    fn default() -> Self {
+impl<T: TimeProvider> SyncState<T> {
+    fn new(time_provider: T) -> SyncState<T> {
         Self {
             #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
             buffer: ArrayVec::new(),
             #[cfg(any(feature = "alloc", not(feature = "no_std")))]
             buffer: Vec::with_capacity(SYNC_BUFFER_SIZE),
             pending_dcs: None,
-            #[cfg(not(feature = "no_std"))]
             timeout: None,
             in_sync: false,
+            time_provider: time_provider
         }
     }
 }
@@ -176,14 +192,27 @@ enum Dcs {
 }
 
 /// The processor wraps a `Parser` to ultimately call methods on a Handler.
-pub struct Processor {
-    state: ProcessorState,
+pub struct Processor<T: TimeProvider> {
+    state: ProcessorState<T>,
     parser: Parser,
 }
 
-impl Processor {
-    pub fn new() -> Processor {
-        Default::default()
+impl Processor<NullTimeProvider> {
+    pub fn new() -> Processor<NullTimeProvider> {
+        Processor::new_with_time_provider(NullTimeProvider::default())
+    }
+}
+
+impl<T: TimeProvider> Processor<T> {
+    pub fn new_with_time_provider(provider: T) -> Processor<T> {
+        Processor {
+            parser: Parser::new(),
+            state: ProcessorState {
+                dcs: None,
+                preceding_char: None,
+                sync_state: SyncState::new(provider)
+            }
+        }
     }
 
     #[inline]
@@ -214,17 +243,13 @@ impl Processor {
         // Resetting state after processing makes sure we don't interpret buffered sync escapes.
         self.state.sync_state.buffer.clear();
         self.state.sync_state.in_sync = false;
-        #[cfg(not(feature = "no_std"))]
-        {
-            self.state.sync_state.timeout = None;
-        }
+        self.state.sync_state.timeout = None;
     }
 
-    /// Synchronized update expiration time.
+    /// Synchronized update expiration time. Returns time in milliseconds from unix epoch
     #[inline]
-    #[cfg(not(feature = "no_std"))]
-    pub fn sync_timeout(&self) -> Option<&Instant> {
-        self.state.sync_state.timeout.as_ref()
+    pub fn sync_timeout(&self) -> Option<u128> {
+        self.state.sync_state.timeout
     }
 
     /// Number of bytes in the synchronization buffer.
@@ -286,10 +311,7 @@ impl Processor {
             // Dispatch on ESC.
             0x1b => match self.state.sync_state.pending_dcs.take() {
                 Some(Dcs::SyncStart) => {
-                    #[cfg(not(feature = "no_std"))]
-                    {
-                        self.state.sync_state.timeout = Some(Instant::now() + SYNC_UPDATE_TIMEOUT);
-                    }
+                    self.state.sync_state.timeout = Some(self.state.sync_state.time_provider.now() + SYNC_UPDATE_TIMEOUT.as_millis());
                     self.state.sync_state.in_sync = true;
                 },
                 Some(Dcs::SyncEnd) => self.stop_sync(handler, writer),
@@ -299,37 +321,24 @@ impl Processor {
     }
 }
 
-impl Default for Processor {
-    fn default() -> Processor {
-        Processor {
-            state: ProcessorState {
-                preceding_char: None,
-                dcs: None,
-                sync_state: SyncState::default(),
-            },
-            parser: Parser::new(),
-        }
-    }
-}
-
 /// Helper type that implements `Perform`.
 ///
 /// Processor creates a Performer when running advance and passes the Performer
 /// to `Parser`.
-struct Performer<'a, H: Handler<W>, W> {
-    state: &'a mut ProcessorState,
+struct Performer<'a, H: Handler<W>, W, T: TimeProvider> {
+    state: &'a mut ProcessorState<T>,
     handler: &'a mut H,
     writer: &'a mut W,
 }
 
-impl<'a, H: Handler<W> + 'a, W> Performer<'a, H, W> {
+impl<'a, H: Handler<W> + 'a, W, T: TimeProvider> Performer<'a, H, W, T> {
     /// Create a performer.
     #[inline]
     pub fn new<'b>(
-        state: &'b mut ProcessorState,
+        state: &'b mut ProcessorState<T>,
         handler: &'b mut H,
         writer: &'b mut W,
-    ) -> Performer<'b, H, W> {
+    ) -> Performer<'b, H, W, T> {
         Performer { state, handler, writer }
     }
 }
@@ -968,7 +977,7 @@ impl StandardCharset {
     }
 }
 
-impl<'a, H, W> Perform for Performer<'a, H, W>
+impl<'a, H, W, T: TimeProvider> Perform for Performer<'a, H, W, T>
 where
     H: Handler<W> + 'a,
     W: 'a,
@@ -1019,10 +1028,7 @@ where
     fn unhook(&mut self) {
         match self.state.dcs {
             Some(Dcs::SyncStart) => {
-                #[cfg(not(feature = "no_std"))]
-                {
-                    self.state.sync_state.timeout = Some(Instant::now() + SYNC_UPDATE_TIMEOUT);
-                }
+                self.state.sync_state.timeout = Some(self.state.sync_state.time_provider.now() + SYNC_UPDATE_TIMEOUT.as_millis());
                 self.state.sync_state.in_sync = true;
             },
             Some(Dcs::SyncEnd) => (),
