@@ -5,12 +5,12 @@ use core::{iter, str};
 
 use core::time::Duration;
 
-#[cfg(any(feature = "alloc", not(feature = "no_std")))]
+#[cfg(feature = "alloc")]
 use alloc::string::String;
-#[cfg(any(feature = "alloc", not(feature = "no_std")))]
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
-#[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+#[cfg(not(feature = "alloc"))]
 use arrayvec::ArrayVec;
 use log::{debug, trace};
 
@@ -28,11 +28,11 @@ pub struct Rgb {
 const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// Maximum number of bytes read in one synchronized update (2MiB).
-#[cfg(any(feature = "alloc", not(feature = "no_std")))]
+#[cfg(feature = "alloc")]
 const SYNC_BUFFER_SIZE: usize = 0x20_0000;
 
 /// Maximum number of bytes read in one synchronized update (4Kib) when no_alloc feature is set.
-#[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+#[cfg(not(feature = "alloc"))]
 const SYNC_BUFFER_SIZE_NO_ALLOC: usize = 0x4000;
 
 /// Number of bytes in the synchronized update DCS sequence before the passthrough parameters.
@@ -155,11 +155,11 @@ struct SyncState<T: TimeProvider> {
     pending_dcs: Option<Dcs>,
 
     /// Bytes read during the synchronized update.
-    #[cfg(any(feature = "alloc", not(feature = "no_std")))]
+    #[cfg(feature = "alloc")]
     buffer: Vec<u8>,
 
     /// Bytes read during the synchronized update.
-    #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+    #[cfg(not(feature = "alloc"))]
     buffer: ArrayVec<[u8; SYNC_BUFFER_SIZE_NO_ALLOC]>,
 
     /// Time provider
@@ -169,9 +169,9 @@ struct SyncState<T: TimeProvider> {
 impl<T: TimeProvider> SyncState<T> {
     fn new(time_provider: T) -> SyncState<T> {
         Self {
-            #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+            #[cfg(not(feature = "alloc"))]
             buffer: ArrayVec::new(),
-            #[cfg(any(feature = "alloc", not(feature = "no_std")))]
+            #[cfg(feature = "alloc")]
             buffer: Vec::with_capacity(SYNC_BUFFER_SIZE),
             pending_dcs: None,
             timeout: None,
@@ -281,11 +281,11 @@ impl<T: TimeProvider> Processor<T> {
         let end = &self.state.sync_state.buffer[offset..];
 
         let sync_buffer_size: usize;
-        #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+        #[cfg(not(feature = "alloc"))]
         {
             sync_buffer_size = SYNC_BUFFER_SIZE_NO_ALLOC
         };
-        #[cfg(any(feature = "alloc", not(feature = "no_std")))]
+        #[cfg(feature = "alloc")]
         {
             sync_buffer_size = SYNC_BUFFER_SIZE
         };
@@ -351,9 +351,8 @@ pub trait Handler<W> {
     /// OSC to set window title.
     #[allow(unused_variables)]
     fn set_title(&mut self, params: Option<&[&[u8]]>) {
-        #[cfg(any(feature = "alloc", not(feature = "no_std")))]
+        #[cfg(feature = "alloc")]
         {
-            #[cfg(feature = "no_std")]
             use alloc::borrow::ToOwned;
 
             self.set_title_utf(params.map(|params| {
@@ -369,7 +368,7 @@ pub trait Handler<W> {
     }
 
     /// OSC to set window title.
-    #[cfg(any(feature = "alloc", not(feature = "no_std")))]
+    #[cfg(feature = "alloc")]
     fn set_title_utf(&mut self, _: Option<String>) {}
 
     /// Set the cursor style.
@@ -1402,9 +1401,9 @@ where
 fn attrs_from_sgr_parameters(
     params: &mut ParamsIter<'_>,
 ) -> impl IntoIterator<Item = Option<Attr>> {
-    #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+    #[cfg(not(feature = "alloc"))]
     let mut attrs = ArrayVec::<[_; crate::params::MAX_PARAMS]>::new();
-    #[cfg(any(feature = "alloc", not(feature = "no_std")))]
+    #[cfg(feature = "alloc")]
     let mut attrs = Vec::with_capacity(params.size_hint().0);
     while let Some(param) = params.next() {
         let attr = match param {

@@ -7,12 +7,10 @@ tasks:
   - stable: |
       cd vte
       $HOME/.cargo/bin/cargo +stable test --features=ansi
-      $HOME/.cargo/bin/cargo +stable test --features=ansi --no-default-features
       $HOME/.cargo/bin/cargo +stable test --features=ansi,alloc
   - clippy: |
       cd vte
       $HOME/.cargo/bin/cargo +stable clippy --features=ansi
-      $HOME/.cargo/bin/cargo +stable clippy --features=ansi --no-default-features
       $HOME/.cargo/bin/cargo +stable clippy --features=ansi,alloc
   - rustfmt: |
       $HOME/.cargo/bin/rustup toolchain install nightly -c rustfmt

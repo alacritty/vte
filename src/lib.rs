@@ -32,16 +32,16 @@
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
 #![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use, clippy::wrong_pub_self_convention)]
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
-#![cfg_attr(feature = "no_std", no_std)]
+#![no_std]
 
-#[cfg(any(feature = "alloc", not(feature = "no_std")))]
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 use core::mem::MaybeUninit;
 
-#[cfg(any(feature = "alloc", not(feature = "no_std")))]
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
-#[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+#[cfg(not(feature = "alloc"))]
 use arrayvec::ArrayVec;
 
 use utf8parse as utf8;
@@ -58,7 +58,7 @@ use definitions::{unpack, Action, State};
 
 const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_PARAMS: usize = 16;
-#[cfg(any(all(not(feature = "alloc"), feature = "no_std"), test))]
+#[cfg(any(not(feature = "alloc"), test))]
 const MAX_OSC_RAW: usize = 1024;
 
 struct VtUtf8Receiver<'a, P: Perform>(&'a mut P, &'a mut State);
@@ -85,9 +85,9 @@ pub struct Parser {
     intermediate_idx: usize,
     params: Params,
     param: u16,
-    #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+    #[cfg(not(feature = "alloc"))]
     osc_raw: ArrayVec<[u8; MAX_OSC_RAW]>,
-    #[cfg(any(feature = "alloc", not(feature = "no_std")))]
+    #[cfg(feature = "alloc")]
     osc_raw: Vec<u8>,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
@@ -241,7 +241,7 @@ impl Parser {
                 self.osc_num_params = 0;
             },
             Action::OscPut => {
-                #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+                #[cfg(not(feature = "alloc"))]
                 {
                     if self.osc_raw.is_full() {
                         return;
@@ -420,7 +420,7 @@ pub trait Perform {
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
 }
 
-#[cfg(all(test, feature = "no_std"))]
+#[cfg(test)]
 #[macro_use]
 extern crate std;
 
@@ -649,10 +649,10 @@ mod tests {
                 assert_eq!(params.len(), 2);
                 assert_eq!(params[0], b"52");
 
-                #[cfg(any(feature = "alloc", not(feature = "no_std")))]
+                #[cfg(feature = "alloc")]
                 assert_eq!(params[1].len(), NUM_BYTES + INPUT_END.len());
 
-                #[cfg(all(not(feature = "alloc"), feature = "no_std"))]
+                #[cfg(not(feature = "alloc"))]
                 assert_eq!(params[1].len(), MAX_OSC_RAW - params[0].len());
             },
             _ => panic!("expected osc sequence"),
