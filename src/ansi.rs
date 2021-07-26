@@ -2,7 +2,7 @@
 
 use core::convert::TryFrom;
 use core::{iter, str};
-
+use core::option::Option::Some;
 use core::time::Duration;
 
 #[cfg(feature = "alloc")]
@@ -15,7 +15,6 @@ use arrayvec::ArrayVec;
 use log::{debug, trace};
 
 use crate::{Params, ParamsIter, Parser, Perform};
-use core::option::Option::Some;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 pub struct Rgb {
