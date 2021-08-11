@@ -2,19 +2,20 @@
 
 use core::convert::TryFrom;
 use core::{iter, str};
-use core::option::Option::Some;
-use core::time::Duration;
 
 #[cfg(feature = "alloc")]
 use alloc::string::String;
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
+#[cfg(feature = "alloc")]
+use core::time::Duration;
 
 #[cfg(not(feature = "alloc"))]
 use arrayvec::ArrayVec;
 use log::{debug, trace};
 
 use crate::{Params, ParamsIter, Parser, Perform};
+use core::marker::PhantomData;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 pub struct Rgb {
@@ -24,23 +25,23 @@ pub struct Rgb {
 }
 
 /// Maximum time before a synchronized update is aborted.
+#[cfg(feature = "alloc")]
 const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// Maximum number of bytes read in one synchronized update (2MiB).
 #[cfg(feature = "alloc")]
 const SYNC_BUFFER_SIZE: usize = 0x20_0000;
 
-/// Maximum number of bytes read in one synchronized update (4Kib) when no_alloc feature is set.
-#[cfg(not(feature = "alloc"))]
-const SYNC_BUFFER_SIZE_NO_ALLOC: usize = 0x4000;
-
 /// Number of bytes in the synchronized update DCS sequence before the passthrough parameters.
+#[cfg(feature = "alloc")]
 const SYNC_ESCAPE_START_LEN: usize = 5;
 
 /// Start of the DCS sequence for beginning synchronized updates.
+#[cfg(feature = "alloc")]
 const SYNC_START_ESCAPE_START: [u8; SYNC_ESCAPE_START_LEN] = [b'\x1b', b'P', b'=', b'1', b's'];
 
 /// Start of the DCS sequence for terminating synchronized updates.
+#[cfg(feature = "alloc")]
 const SYNC_END_ESCAPE_START: [u8; SYNC_ESCAPE_START_LEN] = [b'\x1b', b'P', b'=', b'2', b's'];
 
 /// Parse colors in XParseColor format.
@@ -121,10 +122,14 @@ struct ProcessorState<T: TimeProvider> {
     preceding_char: Option<char>,
 
     /// DCS sequence waiting for termination.
+    #[cfg(feature = "alloc")]
     dcs: Option<Dcs>,
 
     /// State for synchronized terminal updates.
+    #[cfg(feature = "alloc")]
     sync_state: SyncState<T>,
+
+    _time_provider: PhantomData<T>,
 }
 
 /// Current timestamp provider
@@ -144,6 +149,7 @@ impl TimeProvider for NullTimeProvider {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "alloc")]
 struct SyncState<T: TimeProvider> {
     /// Expiration time (in milliseconds since unix epoch) of the synchronized update.
     timeout: Option<u128>,
@@ -154,34 +160,28 @@ struct SyncState<T: TimeProvider> {
     pending_dcs: Option<Dcs>,
 
     /// Bytes read during the synchronized update.
-    #[cfg(feature = "alloc")]
     buffer: Vec<u8>,
-
-    /// Bytes read during the synchronized update.
-    #[cfg(not(feature = "alloc"))]
-    buffer: ArrayVec<[u8; SYNC_BUFFER_SIZE_NO_ALLOC]>,
 
     /// Time provider
     time_provider: T,
 }
 
+#[cfg(feature = "alloc")]
 impl<T: TimeProvider> SyncState<T> {
     fn new(time_provider: T) -> SyncState<T> {
         Self {
-            #[cfg(not(feature = "alloc"))]
-            buffer: ArrayVec::new(),
-            #[cfg(feature = "alloc")]
             buffer: Vec::with_capacity(SYNC_BUFFER_SIZE),
             pending_dcs: None,
             timeout: None,
             in_sync: false,
-            time_provider: time_provider
+            time_provider,
         }
     }
 }
 
 /// Pending DCS sequence.
 #[derive(Debug)]
+#[cfg(feature = "alloc")]
 enum Dcs {
     /// Begin of the synchronized update.
     SyncStart,
@@ -197,20 +197,34 @@ pub struct Processor<T: TimeProvider> {
 }
 
 impl Processor<NullTimeProvider> {
+    #[cfg(feature = "alloc")]
     pub fn new() -> Processor<NullTimeProvider> {
         Processor::new_with_time_provider(NullTimeProvider::default())
+    }
+
+    #[cfg(not(feature = "alloc"))]
+    pub fn new() -> Processor<NullTimeProvider> {
+        Processor {
+            parser: Parser::new(),
+            state: ProcessorState {
+                preceding_char: None,
+                _time_provider: PhantomData::<NullTimeProvider>::default(),
+            },
+        }
     }
 }
 
 impl<T: TimeProvider> Processor<T> {
+    #[cfg(feature = "alloc")]
     pub fn new_with_time_provider(provider: T) -> Processor<T> {
         Processor {
             parser: Parser::new(),
             state: ProcessorState {
                 dcs: None,
                 preceding_char: None,
-                sync_state: SyncState::new(provider)
-            }
+                sync_state: SyncState::new(provider),
+                _time_provider: PhantomData::<T>::default(),
+            },
         }
     }
 
@@ -219,15 +233,24 @@ impl<T: TimeProvider> Processor<T> {
     where
         H: Handler<W>,
     {
-        if !self.state.sync_state.in_sync {
+        #[cfg(feature = "alloc")]
+        {
+            if !self.state.sync_state.in_sync {
+                let mut performer = Performer::new(&mut self.state, handler, writer);
+                self.parser.advance(&mut performer, byte);
+            } else {
+                self.advance_sync(handler, writer, byte)
+            }
+        }
+        #[cfg(not(feature = "alloc"))]
+        {
             let mut performer = Performer::new(&mut self.state, handler, writer);
             self.parser.advance(&mut performer, byte);
-        } else {
-            self.advance_sync(handler, writer, byte)
         }
     }
 
     /// End a synchronized update.
+    #[cfg(feature = "alloc")]
     pub fn stop_sync<H, W>(&mut self, handler: &mut H, writer: &mut W)
     where
         H: Handler<W>,
@@ -247,18 +270,21 @@ impl<T: TimeProvider> Processor<T> {
 
     /// Synchronized update expiration time. Returns time in milliseconds from unix epoch
     #[inline]
+    #[cfg(feature = "alloc")]
     pub fn sync_timeout(&self) -> Option<u128> {
         self.state.sync_state.timeout
     }
 
     /// Number of bytes in the synchronization buffer.
     #[inline]
+    #[cfg(feature = "alloc")]
     pub fn sync_bytes_count(&self) -> usize {
         self.state.sync_state.buffer.len()
     }
 
     /// Process a new byte during a synchronized update.
     #[cold]
+    #[cfg(feature = "alloc")]
     fn advance_sync<H, W>(&mut self, handler: &mut H, writer: &mut W, byte: u8)
     where
         H: Handler<W>,
@@ -273,6 +299,7 @@ impl<T: TimeProvider> Processor<T> {
     }
 
     /// Find the start of sync DCS sequences.
+    #[cfg(feature = "alloc")]
     fn advance_sync_dcs_start(&mut self) {
         // Get the last few bytes for comparison.
         let len = self.state.sync_state.buffer.len();
@@ -280,14 +307,7 @@ impl<T: TimeProvider> Processor<T> {
         let end = &self.state.sync_state.buffer[offset..];
 
         let sync_buffer_size: usize;
-        #[cfg(not(feature = "alloc"))]
-        {
-            sync_buffer_size = SYNC_BUFFER_SIZE_NO_ALLOC
-        };
-        #[cfg(feature = "alloc")]
-        {
-            sync_buffer_size = SYNC_BUFFER_SIZE
-        };
+        sync_buffer_size = SYNC_BUFFER_SIZE;
 
         // Check for extension/termination of the synchronized update.
         if end == SYNC_START_ESCAPE_START {
@@ -298,6 +318,7 @@ impl<T: TimeProvider> Processor<T> {
     }
 
     /// Parse the DCS termination sequence for synchronized updates.
+    #[cfg(feature = "alloc")]
     fn advance_sync_dcs_end<H, W>(&mut self, handler: &mut H, writer: &mut W, byte: u8)
     where
         H: Handler<W>,
@@ -310,7 +331,9 @@ impl<T: TimeProvider> Processor<T> {
             // Dispatch on ESC.
             0x1b => match self.state.sync_state.pending_dcs.take() {
                 Some(Dcs::SyncStart) => {
-                    self.state.sync_state.timeout = Some(self.state.sync_state.time_provider.now() + SYNC_UPDATE_TIMEOUT.as_millis());
+                    self.state.sync_state.timeout = Some(
+                        self.state.sync_state.time_provider.now() + SYNC_UPDATE_TIMEOUT.as_millis(),
+                    );
                     self.state.sync_state.in_sync = true;
                 },
                 Some(Dcs::SyncEnd) => self.stop_sync(handler, writer),
@@ -1004,6 +1027,7 @@ where
     #[inline]
     fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
         match (action, intermediates) {
+            #[cfg(feature = "alloc")]
             ('s', [b'=']) => {
                 // Start a synchronized update. The end is handled with a separate parser.
                 if params.iter().next().map_or(false, |param| param[0] == 1) {
@@ -1024,14 +1048,19 @@ where
 
     #[inline]
     fn unhook(&mut self) {
+        #[cfg(feature = "alloc")]
         match self.state.dcs {
             Some(Dcs::SyncStart) => {
-                self.state.sync_state.timeout = Some(self.state.sync_state.time_provider.now() + SYNC_UPDATE_TIMEOUT.as_millis());
+                self.state.sync_state.timeout = Some(
+                    self.state.sync_state.time_provider.now() + SYNC_UPDATE_TIMEOUT.as_millis(),
+                );
                 self.state.sync_state.in_sync = true;
             },
             Some(Dcs::SyncEnd) => (),
             _ => debug!("[unhandled unhook]"),
         }
+        #[cfg(not(feature = "alloc"))]
+        debug!("[unhandled unhook]")
     }
 
     // TODO replace OSC parsing with parser combinators.
