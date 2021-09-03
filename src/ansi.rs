@@ -372,27 +372,7 @@ impl<'a, H: Handler<W> + 'a, W, T: TimeProvider> Performer<'a, H, W, T> {
 /// writing specific handler impls for tests far easier.
 pub trait Handler<W> {
     /// OSC to set window title.
-    #[allow(unused_variables)]
-    fn set_title(&mut self, params: Option<&[&[u8]]>) {
-        #[cfg(feature = "alloc")]
-        {
-            use alloc::borrow::ToOwned;
-
-            self.set_title_utf(params.map(|params| {
-                params[1..]
-                    .iter()
-                    .flat_map(|x| str::from_utf8(x))
-                    .collect::<Vec<&str>>()
-                    .join(";")
-                    .trim()
-                    .to_owned()
-            }))
-        }
-    }
-
-    /// OSC to set window title.
-    #[cfg(feature = "alloc")]
-    fn set_title_utf(&mut self, _: Option<String>) {}
+    fn set_title(&mut self, _params: Option<&[&[u8]]>) {}
 
     /// Set the cursor style.
     fn set_cursor_style(&mut self, _: Option<CursorStyle>) {}
