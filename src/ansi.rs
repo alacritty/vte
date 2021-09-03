@@ -2,20 +2,20 @@
 
 use core::convert::TryFrom;
 use core::{iter, str};
+#[cfg(feature = "alloc")]
+use core::time::Duration;
+use core::marker::PhantomData;
 
 #[cfg(feature = "alloc")]
 use alloc::string::String;
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
-#[cfg(feature = "alloc")]
-use core::time::Duration;
 
 #[cfg(not(feature = "alloc"))]
 use arrayvec::ArrayVec;
 use log::{debug, trace};
 
 use crate::{Params, ParamsIter, Parser, Perform};
-use core::marker::PhantomData;
 use crate::params::MAX_PARAMS;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
