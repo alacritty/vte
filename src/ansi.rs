@@ -149,8 +149,8 @@ impl TimeProvider for NullTimeProvider {
     }
 }
 
-#[derive(Debug)]
 #[cfg(feature = "alloc")]
+#[derive(Debug)]
 struct SyncState<T: TimeProvider> {
     /// Expiration time (in milliseconds since unix epoch) of the synchronized update.
     timeout: Option<u128>,
@@ -181,8 +181,8 @@ impl<T: TimeProvider> SyncState<T> {
 }
 
 /// Pending DCS sequence.
-#[derive(Debug)]
 #[cfg(feature = "alloc")]
+#[derive(Debug)]
 enum Dcs {
     /// Begin of the synchronized update.
     SyncStart,
