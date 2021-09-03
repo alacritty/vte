@@ -1027,9 +1027,9 @@ where
         debug!("[unhandled put] byte={:?}", byte);
     }
 
+    #[cfg(feature = "alloc")]
     #[inline]
     fn unhook(&mut self) {
-        #[cfg(feature = "alloc")]
         match self.state.dcs {
             Some(Dcs::SyncStart) => {
                 self.state.sync_state.timeout = Some(
@@ -1040,7 +1040,11 @@ where
             Some(Dcs::SyncEnd) => (),
             _ => debug!("[unhandled unhook]"),
         }
-        #[cfg(not(feature = "alloc"))]
+    }
+
+    #[cfg(not(feature = "alloc"))]
+    #[inline]
+    fn unhook(&mut self) {
         debug!("[unhandled unhook]")
     }
 
