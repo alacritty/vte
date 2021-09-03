@@ -16,6 +16,7 @@ use log::{debug, trace};
 
 use crate::{Params, ParamsIter, Parser, Perform};
 use core::marker::PhantomData;
+use crate::params::MAX_PARAMS;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 pub struct Rgb {
@@ -1430,7 +1431,7 @@ fn attrs_from_sgr_parameters(
     params: &mut ParamsIter<'_>,
 ) -> impl IntoIterator<Item = Option<Attr>> {
     #[cfg(not(feature = "alloc"))]
-    let mut attrs = ArrayVec::<[_; crate::params::MAX_PARAMS]>::new();
+    let mut attrs = ArrayVec::<[_; MAX_PARAMS]>::new();
     #[cfg(feature = "alloc")]
     let mut attrs = Vec::with_capacity(params.size_hint().0);
     while let Some(param) = params.next() {
