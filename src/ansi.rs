@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 
 #[cfg(not(feature = "alloc"))]
 use arrayvec::ArrayVec;
-use log::{debug, trace};
+use log::{debug, trace, warn};
 
 use crate::{Params, ParamsIter, Parser, Perform};
 use crate::params::MAX_PARAMS;
@@ -1419,6 +1419,17 @@ fn attrs_from_sgr_parameters(
     #[cfg(feature = "alloc")]
     let mut attrs = Vec::with_capacity(params.size_hint().0);
     while let Some(param) = params.next() {
+        #[cfg(not(feature = "alloc"))]
+        {
+            if attrs.len() == MAX_PARAMS {
+                warn!(
+                    "SGR parameter count is more than max terminal attributes count ({})!\
+                     Skipping exceeding parameters",
+                    MAX_PARAMS
+                );
+                break;
+            }
+        }
         let attr = match param {
             [0] => Some(Attr::Reset),
             [1] => Some(Attr::Bold),
