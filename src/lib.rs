@@ -30,7 +30,7 @@
 //! [`Parser`]: struct.Parser.html
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
-#![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use, clippy::wrong_pub_self_convention)]
+#![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use)]
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
 #![cfg_attr(feature = "no_std", no_std)]
 
@@ -420,7 +420,6 @@ extern crate std;
 mod tests {
     use super::*;
 
-    use std::string::String;
     use std::vec::Vec;
 
     static OSC_BYTES: &[u8] = &[
@@ -515,7 +514,7 @@ mod tests {
 
     #[test]
     fn parse_osc_max_params() {
-        let params = std::iter::repeat(";").take(params::MAX_PARAMS + 1).collect::<String>();
+        let params = ";".repeat(params::MAX_PARAMS + 1);
         let input = format!("\x1b]{}\x1b", &params[..]).into_bytes();
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
@@ -656,7 +655,7 @@ mod tests {
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS - 1 because the last semicolon is interpreted
         // as an implicit zero, making the total number of parameters MAX_PARAMS
-        let params = std::iter::repeat("1;").take(params::MAX_PARAMS - 1).collect::<String>();
+        let params = "1;".repeat(params::MAX_PARAMS - 1);
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
         let mut dispatcher = Dispatcher::default();
@@ -681,7 +680,7 @@ mod tests {
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS because the last semicolon is interpreted
         // as an implicit zero, making the total number of parameters MAX_PARAMS + 1
-        let params = std::iter::repeat("1;").take(params::MAX_PARAMS).collect::<String>();
+        let params = "1;".repeat(params::MAX_PARAMS);
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
         let mut dispatcher = Dispatcher::default();
@@ -796,7 +795,7 @@ mod tests {
 
     #[test]
     fn parse_dcs_max_params() {
-        let params = std::iter::repeat("1;").take(params::MAX_PARAMS + 1).collect::<String>();
+        let params = "1;".repeat(params::MAX_PARAMS + 1);
         let input = format!("\x1bP{}p", &params[..]).into_bytes();
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();

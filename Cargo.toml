@@ -10,7 +10,8 @@ readme = "README.md"
 license = "Apache-2.0 OR MIT"
 version = "0.10.1"
 name = "vte"
-edition = "2018"
+edition = "2021"
+rust-version = "1.56.0"
 
 [dependencies]
 vte_generate_state_changes = { version = "0.1.0", path = "vte_generate_state_changes" }

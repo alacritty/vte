@@ -3,7 +3,7 @@
 //! This module implements a table-driven UTF-8 parser which should
 //! theoretically contain the minimal number of branches (1). The only branch is
 //! on the `Action` returned from unpacking a transition.
-#![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use, clippy::wrong_pub_self_convention)]
+#![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use)]
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
 #![no_std]
 

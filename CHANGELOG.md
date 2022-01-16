@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Minimum rust version has been bumped to 1.56.0
+
 ## 0.10.1
 
 - Fixed invalid intermediates when transitioning from DCS to ESC
