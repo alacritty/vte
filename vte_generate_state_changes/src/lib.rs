@@ -1,4 +1,4 @@
-#![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use, clippy::wrong_pub_self_convention)]
+#![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use)]
 
 extern crate proc_macro;
 
@@ -153,10 +153,10 @@ fn next_usize(iter: &mut impl Iterator<Item = TokenTree>) -> usize {
     match iter.next() {
         Some(Literal(literal)) => {
             let literal = literal.to_string();
-            if literal.starts_with("0x") {
-                usize::from_str_radix(&literal[2..], 16).unwrap()
+            if let Some(prefix) = literal.strip_prefix("0x") {
+                usize::from_str_radix(prefix, 16).unwrap()
             } else {
-                usize::from_str_radix(&literal, 10).unwrap()
+                literal.parse::<usize>().unwrap()
             }
         },
         token => panic!("Expected literal, but got {:?}", token),
