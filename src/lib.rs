@@ -307,7 +307,7 @@ impl Parser {
                 );
             },
             Action::EscDispatch => {
-                performer.esc_dispatch(self.intermediates(), self.ignoring, byte)
+                performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
             },
             Action::Collect => {
                 if self.intermediate_idx == MAX_INTERMEDIATES {
@@ -897,6 +897,28 @@ mod tests {
                 assert!(!ignore);
             },
             _ => panic!("expected esc sequence"),
+        }
+    }
+
+    #[test]
+    fn params_buffer_filled_with_subparam() {
+        static INPUT: &[u8] = b"\x1b[::::::::::::::::::::::::::::::::x\x1b";
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.dispatched.len(), 1);
+        match &dispatcher.dispatched[0] {
+            Sequence::Csi(params, intermediates, ignore, c) => {
+                assert_eq!(intermediates, &[]);
+                assert_eq!(params, &[[0; 32]]);
+                assert_eq!(c, &'x');
+                assert!(ignore);
+            },
+            _ => panic!("expected csi sequence"),
         }
     }
 }

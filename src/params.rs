@@ -68,6 +68,7 @@ impl Params {
     /// Add an additional subparameter to the current parameter.
     #[inline]
     pub(crate) fn extend(&mut self, item: u16) {
+        self.subparams[self.len - self.current_subparams as usize] = self.current_subparams + 1;
         self.params[self.len] = item;
         self.current_subparams += 1;
         self.len += 1;
