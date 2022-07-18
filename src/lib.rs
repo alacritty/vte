@@ -78,7 +78,7 @@ pub struct Parser {
     params: Params,
     param: u16,
     #[cfg(feature = "no_std")]
-    osc_raw: ArrayVec<[u8; MAX_OSC_RAW]>,
+    osc_raw: ArrayVec<u8, MAX_OSC_RAW>,
     #[cfg(not(feature = "no_std"))]
     osc_raw: Vec<u8>,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
