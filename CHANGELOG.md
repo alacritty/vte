@@ -1,7 +1,7 @@
 CHANGELOG
 =========
 
-## Unreleased
+## 0.11.0
 
 - Minimum rust version has been bumped to 1.56.0
 - Fixed infinite loop in `Params` iterator when 32nd parameter is a subparameter
