@@ -26,7 +26,7 @@ pub enum Action {
 /// There is a state for each initial input of the 3 and 4 byte sequences since
 /// the following bytes are subject to different conditions than a tail byte.
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum State {
     /// Ground state; expect anything
     Ground = 0,
