@@ -44,6 +44,8 @@ mod definitions;
 mod params;
 mod table;
 
+#[cfg(feature = "ansi")]
+pub mod ansi;
 pub use params::{Params, ParamsIter};
 
 use definitions::{unpack, Action, State};
