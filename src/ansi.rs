@@ -1,12 +1,26 @@
-//! Process parsed terminal streams into terminal actions.
+//! ANSI Terminal Stream Parsing.
 
-use core::str;
+use alloc::borrow::ToOwned;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
-#[cfg(feature = "no_std")]
-use arrayvec::ArrayVec;
+use core::convert::TryFrom;
+use core::fmt::Write;
+use core::time::Duration;
+use core::{iter, str};
+
 use log::{debug, trace};
 
-use crate::{Parser, Perform};
+use crate::{Params, ParamsIter};
+use std::time::Instant;
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct Hyperlink {
+    /// Identifier for the given hyperlink.
+    pub id: Option<String>,
+    /// Resource identifier of the hyperlink.
+    pub uri: String,
+}
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 pub struct Rgb {
@@ -14,6 +28,21 @@ pub struct Rgb {
     pub g: u8,
     pub b: u8,
 }
+
+/// Maximum time before a synchronized update is aborted.
+const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
+
+/// Maximum number of bytes read in one synchronized update (2MiB).
+const SYNC_BUFFER_SIZE: usize = 0x20_0000;
+
+/// Number of bytes in the synchronized update DCS sequence before the passthrough parameters.
+const SYNC_ESCAPE_START_LEN: usize = 5;
+
+/// Start of the DCS sequence for beginning synchronized updates.
+const SYNC_START_ESCAPE_START: [u8; SYNC_ESCAPE_START_LEN] = [b'\x1b', b'P', b'=', b'1', b's'];
+
+/// Start of the DCS sequence for terminating synchronized updates.
+const SYNC_END_ESCAPE_START: [u8; SYNC_ESCAPE_START_LEN] = [b'\x1b', b'P', b'=', b'2', b's'];
 
 /// Parse colors in XParseColor format.
 fn xparse_color(color: &[u8]) -> Option<Rgb> {
@@ -28,23 +57,24 @@ fn xparse_color(color: &[u8]) -> Option<Rgb> {
 
 /// Parse colors in `rgb:r(rrr)/g(ggg)/b(bbb)` format.
 fn parse_rgb_color(color: &[u8]) -> Option<Rgb> {
-    let mut colors = str::from_utf8(color).ok()?.split('/');
-    let red = colors.next()?;
-    let green = colors.next()?;
-    let blue = colors.next()?;
+    let colors = str::from_utf8(color).ok()?.split('/').collect::<Vec<_>>();
 
-    if colors.next().is_some() {
+    if colors.len() != 3 {
         return None;
     }
 
     // Scale values instead of filling with `0`s.
     let scale = |input: &str| {
-        let max = u32::pow(16, input.len() as u32) - 1;
-        let value = u32::from_str_radix(input, 16).ok()?;
-        Some((255 * value / max) as u8)
+        if input.len() > 4 {
+            None
+        } else {
+            let max = u32::pow(16, input.len() as u32) - 1;
+            let value = u32::from_str_radix(input, 16).ok()?;
+            Some((255 * value / max) as u8)
+        }
     };
 
-    Some(Rgb { r: scale(red)?, g: scale(green)?, b: scale(blue)? })
+    Some(Rgb { r: scale(colors[0])?, g: scale(colors[1])?, b: scale(colors[2])? })
 }
 
 /// Parse colors in `#r(rrr)g(ggg)b(bbb)` format.
@@ -83,57 +113,169 @@ fn parse_number(input: &[u8]) -> Option<u8> {
     Some(num)
 }
 
-/// The processor wraps a `Parser` to ultimately call methods on a Handler.
+/// Internal state for VTE processor.
+#[derive(Debug, Default)]
+struct ProcessorState {
+    /// Last processed character for repetition.
+    preceding_char: Option<char>,
+
+    /// DCS sequence waiting for termination.
+    dcs: Option<Dcs>,
+
+    /// State for synchronized terminal updates.
+    sync_state: SyncState,
+}
+
+#[derive(Debug)]
+struct SyncState {
+    /// Expiration time of the synchronized update.
+    timeout: Option<Instant>,
+
+    /// Sync DCS waiting for termination sequence.
+    pending_dcs: Option<Dcs>,
+
+    /// Bytes read during the synchronized update.
+    buffer: Vec<u8>,
+}
+
+impl Default for SyncState {
+    fn default() -> Self {
+        Self { buffer: Vec::with_capacity(SYNC_BUFFER_SIZE), pending_dcs: None, timeout: None }
+    }
+}
+
+/// Pending DCS sequence.
+#[derive(Debug)]
+enum Dcs {
+    /// Begin of the synchronized update.
+    SyncStart,
+
+    /// End of the synchronized update.
+    SyncEnd,
+}
+
+/// The processor wraps a `crate::Parser` to ultimately call methods on a Handler.
+#[derive(Default)]
 pub struct Processor {
     state: ProcessorState,
-    parser: Parser,
-}
-
-/// Internal state for VTE processor.
-struct ProcessorState {
-    preceding_char: Option<char>,
-}
-
-/// Helper type that implements `Perform`.
-///
-/// Processor creates a Performer when running advance and passes the Performer
-/// to `Parser`.
-struct Performer<'a, H: Handler<W>, W> {
-    state: &'a mut ProcessorState,
-    handler: &'a mut H,
-    writer: &'a mut W,
-}
-
-impl<'a, H: Handler<W> + 'a, W> Performer<'a, H, W> {
-    /// Create a performer.
-    #[inline]
-    pub fn new<'b>(
-        state: &'b mut ProcessorState,
-        handler: &'b mut H,
-        writer: &'b mut W,
-    ) -> Performer<'b, H, W> {
-        Performer { state, handler, writer }
-    }
-}
-
-impl Default for Processor {
-    fn default() -> Processor {
-        Processor { state: ProcessorState { preceding_char: None }, parser: Parser::new() }
-    }
+    parser: crate::Parser,
 }
 
 impl Processor {
-    pub fn new() -> Processor {
-        Default::default()
+    #[inline]
+    pub fn new() -> Self {
+        Self::default()
     }
 
+    /// Process a new byte from the PTY.
     #[inline]
-    pub fn advance<H, W>(&mut self, handler: &mut H, byte: u8, writer: &mut W)
+    pub fn advance<H>(&mut self, handler: &mut H, byte: u8)
     where
-        H: Handler<W>,
+        H: Handler,
     {
-        let mut performer = Performer::new(&mut self.state, handler, writer);
-        self.parser.advance(&mut performer, byte);
+        if self.state.sync_state.timeout.is_none() {
+            let mut performer = Performer::new(&mut self.state, handler);
+            self.parser.advance(&mut performer, byte);
+        } else {
+            self.advance_sync(handler, byte);
+        }
+    }
+
+    /// End a synchronized update.
+    pub fn stop_sync<H>(&mut self, handler: &mut H)
+    where
+        H: Handler,
+    {
+        // Process all synchronized bytes.
+        for i in 0..self.state.sync_state.buffer.len() {
+            let byte = self.state.sync_state.buffer[i];
+            let mut performer = Performer::new(&mut self.state, handler);
+            self.parser.advance(&mut performer, byte);
+        }
+
+        // Resetting state after processing makes sure we don't interpret buffered sync escapes.
+        self.state.sync_state.buffer.clear();
+        self.state.sync_state.timeout = None;
+    }
+
+    /// Synchronized update expiration time.
+    #[inline]
+    pub fn sync_timeout(&self) -> Option<&Instant> {
+        self.state.sync_state.timeout.as_ref()
+    }
+
+    /// Number of bytes in the synchronization buffer.
+    #[inline]
+    pub fn sync_bytes_count(&self) -> usize {
+        self.state.sync_state.buffer.len()
+    }
+
+    /// Process a new byte during a synchronized update.
+    #[cold]
+    fn advance_sync<H>(&mut self, handler: &mut H, byte: u8)
+    where
+        H: Handler,
+    {
+        self.state.sync_state.buffer.push(byte);
+
+        // Handle sync DCS escape sequences.
+        match self.state.sync_state.pending_dcs {
+            Some(_) => self.advance_sync_dcs_end(handler, byte),
+            None => self.advance_sync_dcs_start(),
+        }
+    }
+
+    /// Find the start of sync DCS sequences.
+    fn advance_sync_dcs_start(&mut self) {
+        // Get the last few bytes for comparison.
+        let len = self.state.sync_state.buffer.len();
+        let offset = len.saturating_sub(SYNC_ESCAPE_START_LEN);
+        let end = &self.state.sync_state.buffer[offset..];
+
+        // Check for extension/termination of the synchronized update.
+        if end == SYNC_START_ESCAPE_START {
+            self.state.sync_state.pending_dcs = Some(Dcs::SyncStart);
+        } else if end == SYNC_END_ESCAPE_START || len >= SYNC_BUFFER_SIZE - 1 {
+            self.state.sync_state.pending_dcs = Some(Dcs::SyncEnd);
+        }
+    }
+
+    /// Parse the DCS termination sequence for synchronized updates.
+    fn advance_sync_dcs_end<H>(&mut self, handler: &mut H, byte: u8)
+    where
+        H: Handler,
+    {
+        match byte {
+            // Ignore DCS passthrough characters.
+            0x00..=0x17 | 0x19 | 0x1c..=0x7f | 0xa0..=0xff => (),
+            // Cancel the DCS sequence.
+            0x18 | 0x1a | 0x80..=0x9f => self.state.sync_state.pending_dcs = None,
+            // Dispatch on ESC.
+            0x1b => match self.state.sync_state.pending_dcs.take() {
+                Some(Dcs::SyncStart) => {
+                    self.state.sync_state.timeout = Some(Instant::now() + SYNC_UPDATE_TIMEOUT);
+                },
+                Some(Dcs::SyncEnd) => self.stop_sync(handler),
+                None => (),
+            },
+        }
+    }
+}
+
+/// Helper type that implements `crate::Perform`.
+///
+/// Processor creates a Performer when running advance and passes the Performer
+/// to `crate::Parser`.
+struct Performer<'a, H: Handler> {
+    state: &'a mut ProcessorState,
+    handler: &'a mut H,
+}
+
+impl<'a, H: Handler + 'a> Performer<'a, H> {
+    /// Create a performer.
+    #[inline]
+    pub fn new<'b>(state: &'b mut ProcessorState, handler: &'b mut H) -> Performer<'b, H> {
+        Performer { state, handler }
     }
 }
 
@@ -141,41 +283,42 @@ impl Processor {
 ///
 /// XXX Should probably not provide default impls for everything, but it makes
 /// writing specific handler impls for tests far easier.
-pub trait Handler<W> {
+pub trait Handler {
     /// OSC to set window title.
-    fn set_title(&mut self, _: Option<&[&[u8]]>) {}
+    fn set_title(&mut self, _: Option<String>) {}
 
     /// Set the cursor style.
     fn set_cursor_style(&mut self, _: Option<CursorStyle>) {}
+
+    /// Set the cursor shape.
+    fn set_cursor_shape(&mut self, _shape: CursorShape) {}
 
     /// A character to be displayed.
     fn input(&mut self, _c: char) {}
 
     /// Set cursor to position.
-    fn goto(&mut self, _row: usize, _col: usize) {}
+    fn goto(&mut self, _line: i32, _col: usize) {}
 
     /// Set cursor to specific row.
-    fn goto_line(&mut self, _row: usize) {}
+    fn goto_line(&mut self, _line: i32) {}
 
     /// Set cursor to specific column.
     fn goto_col(&mut self, _col: usize) {}
 
     /// Insert blank characters in current line starting from cursor.
-    fn insert_blank(&mut self, _col: usize) {}
+    fn insert_blank(&mut self, _: usize) {}
 
     /// Move cursor up `rows`.
-    fn move_up(&mut self, _row: usize) {}
+    fn move_up(&mut self, _: usize) {}
 
     /// Move cursor down `rows`.
-    fn move_down(&mut self, _row: usize) {}
+    fn move_down(&mut self, _: usize) {}
 
     /// Identify the terminal (should write back to the pty stream).
-    ///
-    /// TODO this should probably return an io::Result
-    fn identify_terminal(&mut self, _: &mut W, _intermediate: Option<char>) {}
+    fn identify_terminal(&mut self, _intermediate: Option<char>) {}
 
     /// Report device status.
-    fn device_status(&mut self, _: &mut W, _: usize) {}
+    fn device_status(&mut self, _: usize) {}
 
     /// Move cursor forward `cols`.
     fn move_forward(&mut self, _col: usize) {}
@@ -190,7 +333,7 @@ pub trait Handler<W> {
     fn move_up_and_cr(&mut self, _row: usize) {}
 
     /// Put `count` tabs.
-    fn put_tab(&mut self, _count: i64) {}
+    fn put_tab(&mut self, _count: u16) {}
 
     /// Backspace `count` characters.
     fn backspace(&mut self) {}
@@ -216,34 +359,34 @@ pub trait Handler<W> {
     fn set_horizontal_tabstop(&mut self) {}
 
     /// Scroll up `rows` rows.
-    fn scroll_up(&mut self, _row: usize) {}
+    fn scroll_up(&mut self, _: usize) {}
 
     /// Scroll down `rows` rows.
-    fn scroll_down(&mut self, _row: usize) {}
+    fn scroll_down(&mut self, _: usize) {}
 
     /// Insert `count` blank lines.
-    fn insert_blank_lines(&mut self, _row: usize) {}
+    fn insert_blank_lines(&mut self, _: usize) {}
 
     /// Delete `count` lines.
-    fn delete_lines(&mut self, _row: usize) {}
+    fn delete_lines(&mut self, _: usize) {}
 
     /// Erase `count` chars in current line following cursor.
     ///
     /// Erase means resetting to the default state (default colors, no content,
     /// no mode flags).
-    fn erase_chars(&mut self, _col: usize) {}
+    fn erase_chars(&mut self, _: usize) {}
 
     /// Delete `count` chars.
     ///
     /// Deleting a character is like the delete key on the keyboard - everything
     /// to the right of the deleted things is shifted left.
-    fn delete_chars(&mut self, _col: usize) {}
+    fn delete_chars(&mut self, _: usize) {}
 
     /// Move backward `count` tabs.
-    fn move_backward_tabs(&mut self, _count: i64) {}
+    fn move_backward_tabs(&mut self, _count: u16) {}
 
     /// Move forward `count` tabs.
-    fn move_forward_tabs(&mut self, _count: i64) {}
+    fn move_forward_tabs(&mut self, _count: u16) {}
 
     /// Save current cursor position.
     fn save_cursor_position(&mut self) {}
@@ -303,8 +446,8 @@ pub trait Handler<W> {
     /// Set an indexed color value.
     fn set_color(&mut self, _: usize, _: Rgb) {}
 
-    /// Write a foreground/background color escape sequence with the current color.
-    fn dynamic_color_sequence(&mut self, _: &mut W, _: u8, _: usize, _: &str) {}
+    /// Respond to a color query escape sequence.
+    fn dynamic_color_sequence(&mut self, _: String, _: usize, _: &str) {}
 
     /// Reset an indexed color to original value.
     fn reset_color(&mut self, _: usize) {}
@@ -323,11 +466,27 @@ pub trait Handler<W> {
 
     /// Pop the last title from the stack.
     fn pop_title(&mut self) {}
+
+    /// Report text area size in pixels.
+    fn text_area_size_pixels(&mut self) {}
+
+    /// Report text area size in characters.
+    fn text_area_size_chars(&mut self) {}
+
+    /// Set hyperlink.
+    fn set_hyperlink(&mut self, _: Option<Hyperlink>) {}
 }
 
-/// Describes shape of cursor.
+/// Terminal cursor configuration.
+#[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash)]
+pub struct CursorStyle {
+    pub shape: CursorShape,
+    pub blinking: bool,
+}
+
+/// Terminal cursor shape.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
-pub enum CursorStyle {
+pub enum CursorShape {
     /// Cursor is a block like `▒`.
     Block,
 
@@ -344,9 +503,9 @@ pub enum CursorStyle {
     Hidden,
 }
 
-impl Default for CursorStyle {
-    fn default() -> CursorStyle {
-        CursorStyle::Block
+impl Default for CursorShape {
+    fn default() -> CursorShape {
+        CursorShape::Block
     }
 }
 
@@ -355,7 +514,7 @@ impl Default for CursorStyle {
 pub enum Mode {
     /// ?1
     CursorKeys = 1,
-    /// Select 80 or 132 columns per page.
+    /// Select 80 or 132 columns per page (DECCOLM).
     ///
     /// CSI ? 3 h -> set 132 column font.
     /// CSI ? 3 l -> reset 80 column font.
@@ -366,7 +525,7 @@ pub enum Mode {
     /// * erases all data in page memory
     /// * resets DECLRMM to unavailable
     /// * clears data from the status line (if set to host-writable)
-    DECCOLM = 3,
+    ColumnMode = 3,
     /// IRM Insert Mode.
     ///
     /// NB should be part of non-private mode enum.
@@ -401,6 +560,8 @@ pub enum Mode {
     SgrMouse = 1006,
     /// ?1007
     AlternateScroll = 1007,
+    /// ?1042
+    UrgencyHints = 1042,
     /// ?1049
     SwapScreenAndSetRestoreCursor = 1049,
     /// ?2004
@@ -409,9 +570,7 @@ pub enum Mode {
 
 impl Mode {
     /// Create mode from a primitive.
-    ///
-    /// TODO lots of unhandled values.
-    pub fn from_primitive(intermediate: Option<&u8>, num: i64) -> Option<Mode> {
+    pub fn from_primitive(intermediate: Option<&u8>, num: u16) -> Option<Mode> {
         let private = match intermediate {
             Some(b'?') => true,
             None => false,
@@ -421,7 +580,7 @@ impl Mode {
         if private {
             Some(match num {
                 1 => Mode::CursorKeys,
-                3 => Mode::DECCOLM,
+                3 => Mode::ColumnMode,
                 6 => Mode::Origin,
                 7 => Mode::LineWrap,
                 12 => Mode::BlinkingCursor,
@@ -433,6 +592,7 @@ impl Mode {
                 1005 => Mode::Utf8Mouse,
                 1006 => Mode::SgrMouse,
                 1007 => Mode::AlternateScroll,
+                1042 => Mode::UrgencyHints,
                 1049 => Mode::SwapScreenAndSetRestoreCursor,
                 2004 => Mode::BracketedPaste,
                 _ => {
@@ -554,6 +714,7 @@ pub enum NamedColor {
 }
 
 impl NamedColor {
+    #[must_use]
     pub fn to_bright(self) -> Self {
         match self {
             NamedColor::Foreground => NamedColor::BrightForeground,
@@ -578,6 +739,7 @@ impl NamedColor {
         }
     }
 
+    #[must_use]
     pub fn to_dim(self) -> Self {
         match self {
             NamedColor::Black => NamedColor::DimBlack,
@@ -623,6 +785,14 @@ pub enum Attr {
     Italic,
     /// Underline text.
     Underline,
+    /// Underlined twice.
+    DoubleUnderline,
+    /// Undercurled text.
+    Undercurl,
+    /// Dotted underlined text.
+    DottedUnderline,
+    /// Dashed underlined text.
+    DashedUnderline,
     /// Blink cursor slowly.
     BlinkSlow,
     /// Blink cursor fast.
@@ -639,7 +809,7 @@ pub enum Attr {
     CancelBoldDim,
     /// Cancel italic.
     CancelItalic,
-    /// Cancel underline.
+    /// Cancel all underlines.
     CancelUnderline,
     /// Cancel blink.
     CancelBlink,
@@ -653,6 +823,8 @@ pub enum Attr {
     Foreground(Color),
     /// Set indexed background color.
     Background(Color),
+    /// Underline color.
+    UnderlineColor(Option<Color>),
 }
 
 /// Identifiers which can be assigned to a graphic character set.
@@ -692,16 +864,17 @@ impl StandardCharset {
         match self {
             StandardCharset::Ascii => c,
             StandardCharset::SpecialCharacterAndLineDrawing => match c {
+                '_' => ' ',
                 '`' => '◆',
                 'a' => '▒',
-                'b' => '\t',
-                'c' => '\u{000c}',
-                'd' => '\r',
-                'e' => '\n',
+                'b' => '\u{2409}', // Symbol for horizontal tabulation
+                'c' => '\u{240c}', // Symbol for form feed
+                'd' => '\u{240d}', // Symbol for carriage return
+                'e' => '\u{240a}', // Symbol for line feed
                 'f' => '°',
                 'g' => '±',
-                'h' => '\u{2424}',
-                'i' => '\u{000b}',
+                'h' => '\u{2424}', // Symbol for newline
+                'i' => '\u{240b}', // Symbol for vertical tabulation
                 'j' => '┘',
                 'k' => '┐',
                 'l' => '┌',
@@ -729,10 +902,9 @@ impl StandardCharset {
     }
 }
 
-impl<'a, H, W> Perform for Performer<'a, H, W>
+impl<'a, H> crate::Perform for Performer<'a, H>
 where
-    H: Handler<W> + 'a,
-    W: 'a,
+    H: Handler + 'a,
 {
     #[inline]
     fn print(&mut self, c: char) {
@@ -756,11 +928,19 @@ where
     }
 
     #[inline]
-    fn hook(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, _c: char) {
-        debug!(
-            "[unhandled hook] params={:?}, ints: {:?}, ignore: {:?}",
-            params, intermediates, ignore
-        );
+    fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        match (action, intermediates) {
+            ('s', [b'=']) => {
+                // Start a synchronized update. The end is handled with a separate parser.
+                if params.iter().next().map_or(false, |param| param[0] == 1) {
+                    self.state.dcs = Some(Dcs::SyncStart);
+                }
+            },
+            _ => debug!(
+                "[unhandled hook] params={:?}, ints: {:?}, ignore: {:?}, action: {:?}",
+                params, intermediates, ignore, action
+            ),
+        }
     }
 
     #[inline]
@@ -770,17 +950,29 @@ where
 
     #[inline]
     fn unhook(&mut self) {
-        debug!("[unhandled unhook]");
+        match self.state.dcs {
+            Some(Dcs::SyncStart) => {
+                self.state.sync_state.timeout = Some(Instant::now() + SYNC_UPDATE_TIMEOUT);
+            },
+            Some(Dcs::SyncEnd) => (),
+            _ => debug!("[unhandled unhook]"),
+        }
     }
 
-    // TODO replace OSC parsing with parser combinators.
     #[inline]
     fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
-        let writer = &mut self.writer;
         let terminator = if bell_terminated { "\x07" } else { "\x1b\\" };
 
         fn unhandled(params: &[&[u8]]) {
-            debug!("[unhandled osc_dispatch]: params={:?} at line {}", &params, line!());
+            let mut buf = String::new();
+            for items in params {
+                buf.push('[');
+                for item in *items {
+                    let _ = write!(buf, "{:?}", *item as char);
+                }
+                buf.push_str("],");
+            }
+            debug!("[unhandled osc_dispatch]: [{}] at line {}", &buf, line!());
         }
 
         if params.is_empty() || params[0].is_empty() {
@@ -791,7 +983,14 @@ where
             // Set window title.
             b"0" | b"2" => {
                 if params.len() >= 2 {
-                    self.handler.set_title(Some(&params[1..]));
+                    let title = params[1..]
+                        .iter()
+                        .flat_map(|x| str::from_utf8(x))
+                        .collect::<Vec<&str>>()
+                        .join(";")
+                        .trim()
+                        .to_owned();
+                    self.handler.set_title(Some(title));
                     return;
                 }
                 unhandled(params);
@@ -799,17 +998,58 @@ where
 
             // Set color index.
             b"4" => {
-                if params.len() > 1 && params.len() % 2 != 0 {
-                    for chunk in params[1..].chunks(2) {
-                        let index = parse_number(chunk[0]);
-                        let color = xparse_color(chunk[1]);
-                        if let (Some(i), Some(c)) = (index, color) {
-                            self.handler.set_color(i as usize, c);
-                            return;
-                        }
+                if params.len() <= 1 || params.len() % 2 == 0 {
+                    unhandled(params);
+                    return;
+                }
+
+                for chunk in params[1..].chunks(2) {
+                    let index = match parse_number(chunk[0]) {
+                        Some(index) => index,
+                        None => {
+                            unhandled(params);
+                            continue;
+                        },
+                    };
+
+                    if let Some(c) = xparse_color(chunk[1]) {
+                        self.handler.set_color(index as usize, c);
+                    } else if chunk[1] == b"?" {
+                        let prefix = alloc::format!("4;{index}");
+                        self.handler.dynamic_color_sequence(prefix, index as usize, terminator);
+                    } else {
+                        unhandled(params);
                     }
                 }
-                unhandled(params);
+            },
+
+            // Hyperlink.
+            b"8" if params.len() > 2 => {
+                let link_params = params[1];
+
+                // NOTE: The escape sequence is of form 'OSC 8 ; params ; URI ST', where
+                // URI is URL-encoded. However `;` is a special character and might be
+                // passed as is, thus we need to rebuild the URI.
+                let mut uri = str::from_utf8(params[2]).unwrap_or_default().to_string();
+                for param in params[3..].iter() {
+                    uri.push(';');
+                    uri.push_str(str::from_utf8(param).unwrap_or_default());
+                }
+
+                // The OSC 8 escape sequence must be stopped when getting an empty `uri`.
+                if uri.is_empty() {
+                    self.handler.set_hyperlink(None);
+                    return;
+                }
+
+                // Link parameters are in format of `key1=value1:key2=value2`. Currently only key
+                // `id` is defined.
+                let id = link_params
+                    .split(|&b| b == b':')
+                    .find_map(|kv| kv.strip_prefix(b"id="))
+                    .and_then(|kv| str::from_utf8(kv).ok().map(|e| e.to_owned()));
+
+                self.handler.set_hyperlink(Some(Hyperlink { id, uri }));
             },
 
             // Get/set Foreground, Background, Cursor colors.
@@ -831,8 +1071,7 @@ where
                                 self.handler.set_color(index, color);
                             } else if param == b"?" {
                                 self.handler.dynamic_color_sequence(
-                                    writer,
-                                    dynamic_code,
+                                    dynamic_code.to_string(),
                                     index,
                                     terminator,
                                 );
@@ -853,13 +1092,13 @@ where
                     && params[1].len() >= 13
                     && params[1][0..12] == *b"CursorShape="
                 {
-                    let style = match params[1][12] as char {
-                        '0' => CursorStyle::Block,
-                        '1' => CursorStyle::Beam,
-                        '2' => CursorStyle::Underline,
+                    let shape = match params[1][12] as char {
+                        '0' => CursorShape::Block,
+                        '1' => CursorShape::Beam,
+                        '2' => CursorShape::Underline,
                         _ => return unhandled(params),
                     };
-                    self.handler.set_cursor_style(Some(style));
+                    self.handler.set_cursor_shape(shape);
                     return;
                 }
                 unhandled(params);
@@ -871,7 +1110,7 @@ where
                     return unhandled(params);
                 }
 
-                let clipboard = params[1].get(0).unwrap_or(&b'c');
+                let clipboard = params[1].first().unwrap_or(&b'c');
                 match params[2] {
                     b"?" => self.handler.clipboard_load(*clipboard, terminator),
                     base64 => self.handler.clipboard_store(*clipboard, base64),
@@ -881,7 +1120,7 @@ where
             // Reset color index.
             b"104" => {
                 // Reset all color indexes when no parameters are given.
-                if params.len() == 1 {
+                if params.len() == 1 || params[1].is_empty() {
                     for i in 0..256 {
                         self.handler.reset_color(i);
                     }
@@ -914,7 +1153,7 @@ where
     #[inline]
     fn csi_dispatch(
         &mut self,
-        args: &[i64],
+        params: &Params,
         intermediates: &[u8],
         has_ignored_intermediates: bool,
         action: char,
@@ -922,16 +1161,10 @@ where
         macro_rules! unhandled {
             () => {{
                 debug!(
-                    "[Unhandled CSI] action={:?}, args={:?}, intermediates={:?}",
-                    action, args, intermediates
+                    "[Unhandled CSI] action={:?}, params={:?}, intermediates={:?}",
+                    action, params, intermediates
                 );
             }};
-        }
-
-        macro_rules! arg_or_default {
-            (idx: $idx:expr, default: $default:expr) => {
-                args.get($idx).copied().filter(|&v| v != 0).unwrap_or($default)
-            };
         }
 
         if has_ignored_intermediates || intermediates.len() > 1 {
@@ -939,41 +1172,38 @@ where
             return;
         }
 
+        let mut params_iter = params.iter();
         let handler = &mut self.handler;
-        let writer = &mut self.writer;
 
-        match (action, intermediates.get(0)) {
-            ('@', None) => handler.insert_blank(arg_or_default!(idx: 0, default: 1) as usize),
-            ('A', None) => {
-                handler.move_up(arg_or_default!(idx: 0, default: 1) as usize);
-            },
-            ('B', None) | ('e', None) => {
-                handler.move_down(arg_or_default!(idx: 0, default: 1) as usize)
-            },
-            ('b', None) => {
+        let mut next_param_or = |default: u16| match params_iter.next() {
+            Some(&[param, ..]) if param != 0 => param,
+            _ => default,
+        };
+
+        match (action, intermediates) {
+            ('@', []) => handler.insert_blank(next_param_or(1) as usize),
+            ('A', []) => handler.move_up(next_param_or(1) as usize),
+            ('B', []) | ('e', []) => handler.move_down(next_param_or(1) as usize),
+            ('b', []) => {
                 if let Some(c) = self.state.preceding_char {
-                    for _ in 0..arg_or_default!(idx: 0, default: 1) {
+                    for _ in 0..next_param_or(1) {
                         handler.input(c);
                     }
                 } else {
                     debug!("tried to repeat with no preceding char");
                 }
             },
-            ('C', None) | ('a', None) => {
-                handler.move_forward(arg_or_default!(idx: 0, default: 1) as usize)
+            ('C', []) | ('a', []) => handler.move_forward(next_param_or(1) as usize),
+            ('c', intermediates) if next_param_or(0) == 0 => {
+                handler.identify_terminal(intermediates.first().map(|&i| i as char))
             },
-            ('c', intermediate) if arg_or_default!(idx: 0, default: 0) == 0 => {
-                handler.identify_terminal(writer, intermediate.map(|&i| i as char))
-            },
-            ('D', None) => handler.move_backward(arg_or_default!(idx: 0, default: 1) as usize),
-            ('d', None) => handler.goto_line(arg_or_default!(idx: 0, default: 1) as usize - 1),
-            ('E', None) => handler.move_down_and_cr(arg_or_default!(idx: 0, default: 1) as usize),
-            ('F', None) => handler.move_up_and_cr(arg_or_default!(idx: 0, default: 1) as usize),
-            ('G', None) | ('`', None) => {
-                handler.goto_col(arg_or_default!(idx: 0, default: 1) as usize - 1)
-            },
-            ('g', None) => {
-                let mode = match arg_or_default!(idx: 0, default: 0) {
+            ('D', []) => handler.move_backward(next_param_or(1) as usize),
+            ('d', []) => handler.goto_line(next_param_or(1) as i32 - 1),
+            ('E', []) => handler.move_down_and_cr(next_param_or(1) as usize),
+            ('F', []) => handler.move_up_and_cr(next_param_or(1) as usize),
+            ('G', []) | ('`', []) => handler.goto_col(next_param_or(1) as usize - 1),
+            ('g', []) => {
+                let mode = match next_param_or(0) {
                     0 => TabulationClearMode::Current,
                     3 => TabulationClearMode::All,
                     _ => {
@@ -984,22 +1214,22 @@ where
 
                 handler.clear_tabs(mode);
             },
-            ('H', None) | ('f', None) => {
-                let y = arg_or_default!(idx: 0, default: 1) as usize;
-                let x = arg_or_default!(idx: 1, default: 1) as usize;
+            ('H', []) | ('f', []) => {
+                let y = next_param_or(1) as i32;
+                let x = next_param_or(1) as usize;
                 handler.goto(y - 1, x - 1);
             },
-            ('h', intermediate) => {
-                for arg in args {
-                    match Mode::from_primitive(intermediate, *arg) {
+            ('h', intermediates) => {
+                for param in params_iter.map(|param| param[0]) {
+                    match Mode::from_primitive(intermediates.first(), param) {
                         Some(mode) => handler.set_mode(mode),
                         None => unhandled!(),
                     }
                 }
             },
-            ('I', None) => handler.move_forward_tabs(arg_or_default!(idx: 0, default: 1)),
-            ('J', None) => {
-                let mode = match arg_or_default!(idx: 0, default: 0) {
+            ('I', []) => handler.move_forward_tabs(next_param_or(1)),
+            ('J', []) => {
+                let mode = match next_param_or(0) {
                     0 => ClearMode::Below,
                     1 => ClearMode::Above,
                     2 => ClearMode::All,
@@ -1012,8 +1242,8 @@ where
 
                 handler.clear_screen(mode);
             },
-            ('K', None) => {
-                let mode = match arg_or_default!(idx: 0, default: 0) {
+            ('K', []) => {
+                let mode = match next_param_or(0) {
                     0 => LineClearMode::Right,
                     1 => LineClearMode::Left,
                     2 => LineClearMode::All,
@@ -1025,21 +1255,21 @@ where
 
                 handler.clear_line(mode);
             },
-            ('L', None) => handler.insert_blank_lines(arg_or_default!(idx: 0, default: 1) as usize),
-            ('l', intermediate) => {
-                for arg in args {
-                    match Mode::from_primitive(intermediate, *arg) {
+            ('L', []) => handler.insert_blank_lines(next_param_or(1) as usize),
+            ('l', intermediates) => {
+                for param in params_iter.map(|param| param[0]) {
+                    match Mode::from_primitive(intermediates.first(), param) {
                         Some(mode) => handler.unset_mode(mode),
                         None => unhandled!(),
                     }
                 }
             },
-            ('M', None) => handler.delete_lines(arg_or_default!(idx: 0, default: 1) as usize),
-            ('m', None) => {
-                if args.is_empty() {
+            ('M', []) => handler.delete_lines(next_param_or(1) as usize),
+            ('m', []) => {
+                if params.is_empty() {
                     handler.terminal_attribute(Attr::Reset);
                 } else {
-                    for attr in attrs_from_sgr_parameters(args) {
+                    for attr in attrs_from_sgr_parameters(&mut params_iter) {
                         match attr {
                             Some(attr) => handler.terminal_attribute(attr),
                             None => unhandled!(),
@@ -1047,42 +1277,46 @@ where
                     }
                 }
             },
-            ('n', None) => {
-                handler.device_status(writer, arg_or_default!(idx: 0, default: 0) as usize)
-            },
-            ('P', None) => handler.delete_chars(arg_or_default!(idx: 0, default: 1) as usize),
-            ('q', Some(b' ')) => {
+            ('n', []) => handler.device_status(next_param_or(0) as usize),
+            ('P', []) => handler.delete_chars(next_param_or(1) as usize),
+            ('q', [b' ']) => {
                 // DECSCUSR (CSI Ps SP q) -- Set Cursor Style.
-                let style = match arg_or_default!(idx: 0, default: 0) {
+                let cursor_style_id = next_param_or(0);
+                let shape = match cursor_style_id {
                     0 => None,
-                    1 | 2 => Some(CursorStyle::Block),
-                    3 | 4 => Some(CursorStyle::Underline),
-                    5 | 6 => Some(CursorStyle::Beam),
+                    1 | 2 => Some(CursorShape::Block),
+                    3 | 4 => Some(CursorShape::Underline),
+                    5 | 6 => Some(CursorShape::Beam),
                     _ => {
                         unhandled!();
                         return;
                     },
                 };
+                let cursor_style =
+                    shape.map(|shape| CursorStyle { shape, blinking: cursor_style_id % 2 == 1 });
 
-                handler.set_cursor_style(style);
+                handler.set_cursor_style(cursor_style);
             },
-            ('r', None) => {
-                let top = arg_or_default!(idx: 0, default: 1) as usize;
-                let bottom = args.get(1).map(|&b| b as usize).filter(|&b| b != 0);
+            ('r', []) => {
+                let top = next_param_or(1) as usize;
+                let bottom =
+                    params_iter.next().map(|param| param[0] as usize).filter(|&param| param != 0);
 
                 handler.set_scrolling_region(top, bottom);
             },
-            ('S', None) => handler.scroll_up(arg_or_default!(idx: 0, default: 1) as usize),
-            ('s', None) => handler.save_cursor_position(),
-            ('T', None) => handler.scroll_down(arg_or_default!(idx: 0, default: 1) as usize),
-            ('t', None) => match arg_or_default!(idx: 0, default: 1) as usize {
+            ('S', []) => handler.scroll_up(next_param_or(1) as usize),
+            ('s', []) => handler.save_cursor_position(),
+            ('T', []) => handler.scroll_down(next_param_or(1) as usize),
+            ('t', []) => match next_param_or(1) as usize {
+                14 => handler.text_area_size_pixels(),
+                18 => handler.text_area_size_chars(),
                 22 => handler.push_title(),
                 23 => handler.pop_title(),
                 _ => unhandled!(),
             },
-            ('u', None) => handler.restore_cursor_position(),
-            ('X', None) => handler.erase_chars(arg_or_default!(idx: 0, default: 1) as usize),
-            ('Z', None) => handler.move_backward_tabs(arg_or_default!(idx: 0, default: 1)),
+            ('u', []) => handler.restore_cursor_position(),
+            ('X', []) => handler.erase_chars(next_param_or(1) as usize),
+            ('Z', []) => handler.move_backward_tabs(next_param_or(1)),
             _ => unhandled!(),
         }
     }
@@ -1099,12 +1333,12 @@ where
         }
 
         macro_rules! configure_charset {
-            ($charset:path, $intermediate:expr) => {{
-                let index: CharsetIndex = match $intermediate {
-                    Some(b'(') => CharsetIndex::G0,
-                    Some(b')') => CharsetIndex::G1,
-                    Some(b'*') => CharsetIndex::G2,
-                    Some(b'+') => CharsetIndex::G3,
+            ($charset:path, $intermediates:expr) => {{
+                let index: CharsetIndex = match $intermediates {
+                    [b'('] => CharsetIndex::G0,
+                    [b')'] => CharsetIndex::G1,
+                    [b'*'] => CharsetIndex::G2,
+                    [b'+'] => CharsetIndex::G3,
                     _ => {
                         unhandled!();
                         return;
@@ -1114,172 +1348,141 @@ where
             }};
         }
 
-        match (byte, intermediates.get(0)) {
-            (b'B', intermediate) => configure_charset!(StandardCharset::Ascii, intermediate),
-            (b'D', None) => self.handler.linefeed(),
-            (b'E', None) => {
+        match (byte, intermediates) {
+            (b'B', intermediates) => configure_charset!(StandardCharset::Ascii, intermediates),
+            (b'D', []) => self.handler.linefeed(),
+            (b'E', []) => {
                 self.handler.linefeed();
                 self.handler.carriage_return();
             },
-            (b'H', None) => self.handler.set_horizontal_tabstop(),
-            (b'M', None) => self.handler.reverse_index(),
-            (b'Z', None) => self.handler.identify_terminal(self.writer, None),
-            (b'c', None) => self.handler.reset_state(),
-            (b'0', intermediate) => {
-                configure_charset!(StandardCharset::SpecialCharacterAndLineDrawing, intermediate)
+            (b'H', []) => self.handler.set_horizontal_tabstop(),
+            (b'M', []) => self.handler.reverse_index(),
+            (b'Z', []) => self.handler.identify_terminal(None),
+            (b'c', []) => self.handler.reset_state(),
+            (b'0', intermediates) => {
+                configure_charset!(StandardCharset::SpecialCharacterAndLineDrawing, intermediates)
             },
-            (b'7', None) => self.handler.save_cursor_position(),
-            (b'8', Some(b'#')) => self.handler.decaln(),
-            (b'8', None) => self.handler.restore_cursor_position(),
-            (b'=', None) => self.handler.set_keypad_application_mode(),
-            (b'>', None) => self.handler.unset_keypad_application_mode(),
+            (b'7', []) => self.handler.save_cursor_position(),
+            (b'8', [b'#']) => self.handler.decaln(),
+            (b'8', []) => self.handler.restore_cursor_position(),
+            (b'=', []) => self.handler.set_keypad_application_mode(),
+            (b'>', []) => self.handler.unset_keypad_application_mode(),
             // String terminator, do nothing (parser handles as string terminator).
-            (b'\\', None) => (),
+            (b'\\', []) => (),
             _ => unhandled!(),
         }
     }
 }
 
-fn attrs_from_sgr_parameters(parameters: &[i64]) -> impl IntoIterator<Item = Option<Attr>> {
-    let mut i = 0;
-    #[cfg(feature = "no_std")]
-    let mut attrs = ArrayVec::<[_; crate::MAX_PARAMS]>::new();
-    #[cfg(not(feature = "no_std"))]
-    let mut attrs = Vec::with_capacity(parameters.len());
-    loop {
-        if i >= parameters.len() {
-            break;
-        }
+#[inline]
+fn attrs_from_sgr_parameters(params: &mut ParamsIter<'_>) -> Vec<Option<Attr>> {
+    let mut attrs = Vec::with_capacity(params.size_hint().0);
 
-        let attr = match parameters[i] {
-            0 => Some(Attr::Reset),
-            1 => Some(Attr::Bold),
-            2 => Some(Attr::Dim),
-            3 => Some(Attr::Italic),
-            4 => Some(Attr::Underline),
-            5 => Some(Attr::BlinkSlow),
-            6 => Some(Attr::BlinkFast),
-            7 => Some(Attr::Reverse),
-            8 => Some(Attr::Hidden),
-            9 => Some(Attr::Strike),
-            21 => Some(Attr::CancelBold),
-            22 => Some(Attr::CancelBoldDim),
-            23 => Some(Attr::CancelItalic),
-            24 => Some(Attr::CancelUnderline),
-            25 => Some(Attr::CancelBlink),
-            27 => Some(Attr::CancelReverse),
-            28 => Some(Attr::CancelHidden),
-            29 => Some(Attr::CancelStrike),
-            30 => Some(Attr::Foreground(Color::Named(NamedColor::Black))),
-            31 => Some(Attr::Foreground(Color::Named(NamedColor::Red))),
-            32 => Some(Attr::Foreground(Color::Named(NamedColor::Green))),
-            33 => Some(Attr::Foreground(Color::Named(NamedColor::Yellow))),
-            34 => Some(Attr::Foreground(Color::Named(NamedColor::Blue))),
-            35 => Some(Attr::Foreground(Color::Named(NamedColor::Magenta))),
-            36 => Some(Attr::Foreground(Color::Named(NamedColor::Cyan))),
-            37 => Some(Attr::Foreground(Color::Named(NamedColor::White))),
-            38 => {
-                let mut start = 0;
-                if let Some(color) = parse_sgr_color(&parameters[i..], &mut start) {
-                    i += start;
-                    Some(Attr::Foreground(color))
-                } else {
-                    None
-                }
+    while let Some(param) = params.next() {
+        let attr = match param {
+            [0] => Some(Attr::Reset),
+            [1] => Some(Attr::Bold),
+            [2] => Some(Attr::Dim),
+            [3] => Some(Attr::Italic),
+            [4, 0] => Some(Attr::CancelUnderline),
+            [4, 2] => Some(Attr::DoubleUnderline),
+            [4, 3] => Some(Attr::Undercurl),
+            [4, 4] => Some(Attr::DottedUnderline),
+            [4, 5] => Some(Attr::DashedUnderline),
+            [4, ..] => Some(Attr::Underline),
+            [5] => Some(Attr::BlinkSlow),
+            [6] => Some(Attr::BlinkFast),
+            [7] => Some(Attr::Reverse),
+            [8] => Some(Attr::Hidden),
+            [9] => Some(Attr::Strike),
+            [21] => Some(Attr::CancelBold),
+            [22] => Some(Attr::CancelBoldDim),
+            [23] => Some(Attr::CancelItalic),
+            [24] => Some(Attr::CancelUnderline),
+            [25] => Some(Attr::CancelBlink),
+            [27] => Some(Attr::CancelReverse),
+            [28] => Some(Attr::CancelHidden),
+            [29] => Some(Attr::CancelStrike),
+            [30] => Some(Attr::Foreground(Color::Named(NamedColor::Black))),
+            [31] => Some(Attr::Foreground(Color::Named(NamedColor::Red))),
+            [32] => Some(Attr::Foreground(Color::Named(NamedColor::Green))),
+            [33] => Some(Attr::Foreground(Color::Named(NamedColor::Yellow))),
+            [34] => Some(Attr::Foreground(Color::Named(NamedColor::Blue))),
+            [35] => Some(Attr::Foreground(Color::Named(NamedColor::Magenta))),
+            [36] => Some(Attr::Foreground(Color::Named(NamedColor::Cyan))),
+            [37] => Some(Attr::Foreground(Color::Named(NamedColor::White))),
+            [38] => {
+                let mut iter = params.map(|param| param[0]);
+                parse_sgr_color(&mut iter).map(Attr::Foreground)
             },
-            39 => Some(Attr::Foreground(Color::Named(NamedColor::Foreground))),
-            40 => Some(Attr::Background(Color::Named(NamedColor::Black))),
-            41 => Some(Attr::Background(Color::Named(NamedColor::Red))),
-            42 => Some(Attr::Background(Color::Named(NamedColor::Green))),
-            43 => Some(Attr::Background(Color::Named(NamedColor::Yellow))),
-            44 => Some(Attr::Background(Color::Named(NamedColor::Blue))),
-            45 => Some(Attr::Background(Color::Named(NamedColor::Magenta))),
-            46 => Some(Attr::Background(Color::Named(NamedColor::Cyan))),
-            47 => Some(Attr::Background(Color::Named(NamedColor::White))),
-            48 => {
-                let mut start = 0;
-                if let Some(color) = parse_sgr_color(&parameters[i..], &mut start) {
-                    i += start;
-                    Some(Attr::Background(color))
-                } else {
-                    None
-                }
+            [38, params @ ..] => handle_colon_rgb(params).map(Attr::Foreground),
+            [39] => Some(Attr::Foreground(Color::Named(NamedColor::Foreground))),
+            [40] => Some(Attr::Background(Color::Named(NamedColor::Black))),
+            [41] => Some(Attr::Background(Color::Named(NamedColor::Red))),
+            [42] => Some(Attr::Background(Color::Named(NamedColor::Green))),
+            [43] => Some(Attr::Background(Color::Named(NamedColor::Yellow))),
+            [44] => Some(Attr::Background(Color::Named(NamedColor::Blue))),
+            [45] => Some(Attr::Background(Color::Named(NamedColor::Magenta))),
+            [46] => Some(Attr::Background(Color::Named(NamedColor::Cyan))),
+            [47] => Some(Attr::Background(Color::Named(NamedColor::White))),
+            [48] => {
+                let mut iter = params.map(|param| param[0]);
+                parse_sgr_color(&mut iter).map(Attr::Background)
             },
-            49 => Some(Attr::Background(Color::Named(NamedColor::Background))),
-            90 => Some(Attr::Foreground(Color::Named(NamedColor::BrightBlack))),
-            91 => Some(Attr::Foreground(Color::Named(NamedColor::BrightRed))),
-            92 => Some(Attr::Foreground(Color::Named(NamedColor::BrightGreen))),
-            93 => Some(Attr::Foreground(Color::Named(NamedColor::BrightYellow))),
-            94 => Some(Attr::Foreground(Color::Named(NamedColor::BrightBlue))),
-            95 => Some(Attr::Foreground(Color::Named(NamedColor::BrightMagenta))),
-            96 => Some(Attr::Foreground(Color::Named(NamedColor::BrightCyan))),
-            97 => Some(Attr::Foreground(Color::Named(NamedColor::BrightWhite))),
-            100 => Some(Attr::Background(Color::Named(NamedColor::BrightBlack))),
-            101 => Some(Attr::Background(Color::Named(NamedColor::BrightRed))),
-            102 => Some(Attr::Background(Color::Named(NamedColor::BrightGreen))),
-            103 => Some(Attr::Background(Color::Named(NamedColor::BrightYellow))),
-            104 => Some(Attr::Background(Color::Named(NamedColor::BrightBlue))),
-            105 => Some(Attr::Background(Color::Named(NamedColor::BrightMagenta))),
-            106 => Some(Attr::Background(Color::Named(NamedColor::BrightCyan))),
-            107 => Some(Attr::Background(Color::Named(NamedColor::BrightWhite))),
+            [48, params @ ..] => handle_colon_rgb(params).map(Attr::Background),
+            [49] => Some(Attr::Background(Color::Named(NamedColor::Background))),
+            [58] => {
+                let mut iter = params.map(|param| param[0]);
+                parse_sgr_color(&mut iter).map(|color| Attr::UnderlineColor(Some(color)))
+            },
+            [58, params @ ..] => {
+                handle_colon_rgb(params).map(|color| Attr::UnderlineColor(Some(color)))
+            },
+            [59] => Some(Attr::UnderlineColor(None)),
+            [90] => Some(Attr::Foreground(Color::Named(NamedColor::BrightBlack))),
+            [91] => Some(Attr::Foreground(Color::Named(NamedColor::BrightRed))),
+            [92] => Some(Attr::Foreground(Color::Named(NamedColor::BrightGreen))),
+            [93] => Some(Attr::Foreground(Color::Named(NamedColor::BrightYellow))),
+            [94] => Some(Attr::Foreground(Color::Named(NamedColor::BrightBlue))),
+            [95] => Some(Attr::Foreground(Color::Named(NamedColor::BrightMagenta))),
+            [96] => Some(Attr::Foreground(Color::Named(NamedColor::BrightCyan))),
+            [97] => Some(Attr::Foreground(Color::Named(NamedColor::BrightWhite))),
+            [100] => Some(Attr::Background(Color::Named(NamedColor::BrightBlack))),
+            [101] => Some(Attr::Background(Color::Named(NamedColor::BrightRed))),
+            [102] => Some(Attr::Background(Color::Named(NamedColor::BrightGreen))),
+            [103] => Some(Attr::Background(Color::Named(NamedColor::BrightYellow))),
+            [104] => Some(Attr::Background(Color::Named(NamedColor::BrightBlue))),
+            [105] => Some(Attr::Background(Color::Named(NamedColor::BrightMagenta))),
+            [106] => Some(Attr::Background(Color::Named(NamedColor::BrightCyan))),
+            [107] => Some(Attr::Background(Color::Named(NamedColor::BrightWhite))),
             _ => None,
         };
-
         attrs.push(attr);
-
-        i += 1;
     }
+
     attrs
 }
 
+/// Handle colon separated rgb color escape sequence.
+#[inline]
+fn handle_colon_rgb(params: &[u16]) -> Option<Color> {
+    let rgb_start = if params.len() > 4 { 2 } else { 1 };
+    let rgb_iter = params[rgb_start..].iter().copied();
+    let mut iter = iter::once(params[0]).chain(rgb_iter);
+
+    parse_sgr_color(&mut iter)
+}
+
 /// Parse a color specifier from list of attributes.
-fn parse_sgr_color(attrs: &[i64], i: &mut usize) -> Option<Color> {
-    if attrs.len() < 2 {
-        return None;
-    }
-
-    match attrs[*i + 1] {
-        2 => {
-            // RGB color spec.
-            if attrs.len() < 5 {
-                debug!("Expected RGB color spec; got {:?}", attrs);
-                return None;
-            }
-
-            let r = attrs[*i + 2];
-            let g = attrs[*i + 3];
-            let b = attrs[*i + 4];
-
-            *i += 4;
-
-            let range = 0..256;
-            if !range.contains(&r) || !range.contains(&g) || !range.contains(&b) {
-                debug!("Invalid RGB color spec: ({}, {}, {})", r, g, b);
-                return None;
-            }
-
-            Some(Color::Spec(Rgb { r: r as u8, g: g as u8, b: b as u8 }))
-        },
-        5 => {
-            if attrs.len() < 3 {
-                debug!("Expected color index; got {:?}", attrs);
-                None
-            } else {
-                *i += 2;
-                let idx = attrs[*i];
-                match idx {
-                    0..=255 => Some(Color::Indexed(idx as u8)),
-                    _ => {
-                        debug!("Invalid color index: {}", idx);
-                        None
-                    },
-                }
-            }
-        },
-        _ => {
-            debug!("Unexpected color attr: {}", attrs[*i + 1]);
-            None
-        },
+fn parse_sgr_color(params: &mut dyn Iterator<Item = u16>) -> Option<Color> {
+    match params.next() {
+        Some(2) => Some(Color::Spec(Rgb {
+            r: u8::try_from(params.next()?).ok()?,
+            g: u8::try_from(params.next()?).ok()?,
+            b: u8::try_from(params.next()?).ok()?,
+        })),
+        Some(5) => Some(Color::Indexed(u8::try_from(params.next()?).ok()?)),
+        _ => None,
     }
 }
 
@@ -1359,20 +1562,18 @@ pub mod C0 {
 // Byte sequences used in these tests are recording of pty stdout.
 #[cfg(test)]
 mod tests {
-    use super::{
-        parse_number, xparse_color, Attr, CharsetIndex, Color, Handler, Processor, StandardCharset,
-    };
-    use crate::ansi::Rgb;
-    use std::io;
+    use super::*;
 
     struct MockHandler {
         index: CharsetIndex,
         charset: StandardCharset,
         attr: Option<Attr>,
         identity_reported: bool,
+        color: Option<Rgb>,
+        reset_colors: Vec<usize>,
     }
 
-    impl Handler<io::Sink> for MockHandler {
+    impl Handler for MockHandler {
         fn terminal_attribute(&mut self, attr: Attr) {
             self.attr = Some(attr);
         }
@@ -1386,12 +1587,20 @@ mod tests {
             self.index = index;
         }
 
-        fn identify_terminal(&mut self, _: &mut io::Sink, _intermediate: Option<char>) {
+        fn identify_terminal(&mut self, _intermediate: Option<char>) {
             self.identity_reported = true;
         }
 
         fn reset_state(&mut self) {
             *self = Self::default();
+        }
+
+        fn set_color(&mut self, _: usize, c: Rgb) {
+            self.color = Some(c);
+        }
+
+        fn reset_color(&mut self, index: usize) {
+            self.reset_colors.push(index)
         }
     }
 
@@ -1402,6 +1611,8 @@ mod tests {
                 charset: StandardCharset::Ascii,
                 attr: None,
                 identity_reported: false,
+                color: None,
+                reset_colors: Vec::new(),
             }
         }
     }
@@ -1413,8 +1624,8 @@ mod tests {
         let mut parser = Processor::new();
         let mut handler = MockHandler::default();
 
-        for byte in &BYTES[..] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+        for byte in BYTES {
+            parser.advance(&mut handler, *byte);
         }
 
         assert_eq!(handler.attr, Some(Attr::Bold));
@@ -1427,8 +1638,8 @@ mod tests {
         let mut parser = Processor::new();
         let mut handler = MockHandler::default();
 
-        for byte in &bytes[..] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+        for byte in bytes {
+            parser.advance(&mut handler, *byte);
         }
 
         assert!(!handler.identity_reported);
@@ -1436,8 +1647,8 @@ mod tests {
 
         let bytes: &[u8] = &[0x1b, b'[', b'c'];
 
-        for byte in &bytes[..] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+        for byte in bytes {
+            parser.advance(&mut handler, *byte);
         }
 
         assert!(handler.identity_reported);
@@ -1445,8 +1656,8 @@ mod tests {
 
         let bytes: &[u8] = &[0x1b, b'[', b'0', b'c'];
 
-        for byte in &bytes[..] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+        for byte in bytes {
+            parser.advance(&mut handler, *byte);
         }
 
         assert!(handler.identity_reported);
@@ -1459,8 +1670,8 @@ mod tests {
         let mut parser = Processor::new();
         let mut handler = MockHandler::default();
 
-        for byte in &bytes[..] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+        for byte in bytes {
+            parser.advance(&mut handler, *byte);
         }
 
         assert!(handler.identity_reported);
@@ -1471,8 +1682,8 @@ mod tests {
         let mut parser = Processor::new();
         let mut handler = MockHandler::default();
 
-        for byte in &bytes[..] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+        for byte in bytes {
+            parser.advance(&mut handler, *byte);
         }
 
         assert!(!handler.identity_reported);
@@ -1489,13 +1700,13 @@ mod tests {
         let mut parser = Processor::new();
         let mut handler = MockHandler::default();
 
-        for byte in &BYTES[..] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+        for byte in BYTES {
+            parser.advance(&mut handler, *byte);
         }
 
         let spec = Rgb { r: 128, g: 66, b: 255 };
 
-        assert_eq!(handler.attr, Some(Attr::Foreground(Color::Spec(spec.into()))));
+        assert_eq!(handler.attr, Some(Attr::Foreground(Color::Spec(spec))));
     }
 
     /// No exactly a test; useful for debugging.
@@ -1520,8 +1731,8 @@ mod tests {
         let mut handler = MockHandler::default();
         let mut parser = Processor::new();
 
-        for byte in &BYTES[..] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+        for byte in BYTES {
+            parser.advance(&mut handler, *byte);
         }
     }
 
@@ -1531,8 +1742,8 @@ mod tests {
         let mut parser = Processor::new();
         let mut handler = MockHandler::default();
 
-        for byte in &BYTES[..] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+        for byte in BYTES {
+            parser.advance(&mut handler, *byte);
         }
 
         assert_eq!(handler.index, CharsetIndex::G0);
@@ -1546,14 +1757,14 @@ mod tests {
         let mut handler = MockHandler::default();
 
         for byte in &BYTES[..3] {
-            parser.advance(&mut handler, *byte, &mut io::sink());
+            parser.advance(&mut handler, *byte);
         }
 
         assert_eq!(handler.index, CharsetIndex::G1);
         assert_eq!(handler.charset, StandardCharset::SpecialCharacterAndLineDrawing);
 
         let mut handler = MockHandler::default();
-        parser.advance(&mut handler, BYTES[3], &mut io::sink());
+        parser.advance(&mut handler, BYTES[3]);
 
         assert_eq!(handler.index, CharsetIndex::G1);
     }
@@ -1599,5 +1810,63 @@ mod tests {
     #[test]
     fn parse_number_too_large() {
         assert_eq!(parse_number(b"321"), None);
+    }
+
+    #[test]
+    fn parse_osc4_set_color() {
+        let bytes: &[u8] = b"\x1b]4;0;#fff\x1b\\";
+
+        let mut parser = Processor::new();
+        let mut handler = MockHandler::default();
+
+        for byte in bytes {
+            parser.advance(&mut handler, *byte);
+        }
+
+        assert_eq!(handler.color, Some(Rgb { r: 0xf0, g: 0xf0, b: 0xf0 }));
+    }
+
+    #[test]
+    fn parse_osc104_reset_color() {
+        let bytes: &[u8] = b"\x1b]104;1;\x1b\\";
+
+        let mut parser = Processor::new();
+        let mut handler = MockHandler::default();
+
+        for byte in bytes {
+            parser.advance(&mut handler, *byte);
+        }
+
+        assert_eq!(handler.reset_colors, vec![1]);
+    }
+
+    #[test]
+    fn parse_osc104_reset_all_colors() {
+        let bytes: &[u8] = b"\x1b]104;\x1b\\";
+
+        let mut parser = Processor::new();
+        let mut handler = MockHandler::default();
+
+        for byte in bytes {
+            parser.advance(&mut handler, *byte);
+        }
+
+        let expected: Vec<usize> = (0..256).collect();
+        assert_eq!(handler.reset_colors, expected);
+    }
+
+    #[test]
+    fn parse_osc104_reset_all_colors_no_semicolon() {
+        let bytes: &[u8] = b"\x1b]104\x1b\\";
+
+        let mut parser = Processor::new();
+        let mut handler = MockHandler::default();
+
+        for byte in bytes {
+            parser.advance(&mut handler, *byte);
+        }
+
+        let expected: Vec<usize> = (0..256).collect();
+        assert_eq!(handler.reset_colors, expected);
     }
 }
