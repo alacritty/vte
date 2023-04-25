@@ -12,7 +12,48 @@ use core::{iter, str};
 use log::{debug, trace};
 
 use crate::{Params, ParamsIter};
-use std::time::Instant;
+
+pub trait SyncHandler: Default {
+    /// Expiration time of the synchronized update.
+    fn update_timeout(&mut self, _: Option<Duration>);
+    fn pending_timeout(&self) -> bool;
+}
+
+#[cfg(not(feature = "no_std"))]
+pub type DefaultSyncHandler = StdTimeProvider;
+
+#[cfg(not(feature = "no_std"))]
+#[derive(Default)]
+pub struct StdTimeProvider {
+    timeout: Option<std::time::Instant>,
+}
+
+#[cfg(not(feature = "no_std"))]
+impl SyncHandler for StdTimeProvider {
+    fn update_timeout(&mut self, duration: Option<Duration>) {
+        use std::time::Instant;
+        self.timeout = duration.map(|e| Instant::now() + e);
+    }
+
+    fn pending_timeout(&self) -> bool {
+        self.timeout.is_some()
+    }
+}
+
+#[cfg(feature = "no_std")]
+pub type DefaultSyncHandler = NullTimeProvider;
+
+/// Time provider which always returns 0.
+#[derive(Default)]
+pub struct NullTimeProvider;
+
+impl SyncHandler for NullTimeProvider {
+    fn update_timeout(&mut self, _: Option<Duration>) {}
+
+    fn pending_timeout(&self) -> bool {
+        false
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Hyperlink {
@@ -115,7 +156,7 @@ fn parse_number(input: &[u8]) -> Option<u8> {
 
 /// Internal state for VTE processor.
 #[derive(Debug, Default)]
-struct ProcessorState {
+struct ProcessorState<T: SyncHandler> {
     /// Last processed character for repetition.
     preceding_char: Option<char>,
 
@@ -123,13 +164,13 @@ struct ProcessorState {
     dcs: Option<Dcs>,
 
     /// State for synchronized terminal updates.
-    sync_state: SyncState,
+    sync_state: SyncState<T>,
 }
 
 #[derive(Debug)]
-struct SyncState {
-    /// Expiration time of the synchronized update.
-    timeout: Option<Instant>,
+struct SyncState<T: SyncHandler> {
+    /// Handler for synchronized updates.
+    handler: T,
 
     /// Sync DCS waiting for termination sequence.
     pending_dcs: Option<Dcs>,
@@ -138,9 +179,13 @@ struct SyncState {
     buffer: Vec<u8>,
 }
 
-impl Default for SyncState {
+impl<T: SyncHandler> Default for SyncState<T> {
     fn default() -> Self {
-        Self { buffer: Vec::with_capacity(SYNC_BUFFER_SIZE), pending_dcs: None, timeout: None }
+        Self {
+            buffer: Vec::with_capacity(SYNC_BUFFER_SIZE),
+            pending_dcs: None,
+            handler: T::default(),
+        }
     }
 }
 
@@ -156,12 +201,12 @@ enum Dcs {
 
 /// The processor wraps a `crate::Parser` to ultimately call methods on a Handler.
 #[derive(Default)]
-pub struct Processor {
-    state: ProcessorState,
+pub struct Processor<T: SyncHandler = DefaultSyncHandler> {
+    state: ProcessorState<T>,
     parser: crate::Parser,
 }
 
-impl Processor {
+impl<T: SyncHandler> Processor<T> {
     #[inline]
     pub fn new() -> Self {
         Self::default()
@@ -173,7 +218,7 @@ impl Processor {
     where
         H: Handler,
     {
-        if self.state.sync_state.timeout.is_none() {
+        if !self.state.sync_state.handler.pending_timeout() {
             let mut performer = Performer::new(&mut self.state, handler);
             self.parser.advance(&mut performer, byte);
         } else {
@@ -195,13 +240,7 @@ impl Processor {
 
         // Resetting state after processing makes sure we don't interpret buffered sync escapes.
         self.state.sync_state.buffer.clear();
-        self.state.sync_state.timeout = None;
-    }
-
-    /// Synchronized update expiration time.
-    #[inline]
-    pub fn sync_timeout(&self) -> Option<&Instant> {
-        self.state.sync_state.timeout.as_ref()
+        self.state.sync_state.handler.update_timeout(None);
     }
 
     /// Number of bytes in the synchronization buffer.
@@ -253,7 +292,7 @@ impl Processor {
             // Dispatch on ESC.
             0x1b => match self.state.sync_state.pending_dcs.take() {
                 Some(Dcs::SyncStart) => {
-                    self.state.sync_state.timeout = Some(Instant::now() + SYNC_UPDATE_TIMEOUT);
+                    self.state.sync_state.handler.update_timeout(Some(SYNC_UPDATE_TIMEOUT));
                 },
                 Some(Dcs::SyncEnd) => self.stop_sync(handler),
                 None => (),
@@ -266,15 +305,15 @@ impl Processor {
 ///
 /// Processor creates a Performer when running advance and passes the Performer
 /// to `crate::Parser`.
-struct Performer<'a, H: Handler> {
-    state: &'a mut ProcessorState,
+struct Performer<'a, H: Handler, T: SyncHandler> {
+    state: &'a mut ProcessorState<T>,
     handler: &'a mut H,
 }
 
-impl<'a, H: Handler + 'a> Performer<'a, H> {
+impl<'a, H: Handler + 'a, T: SyncHandler> Performer<'a, H, T> {
     /// Create a performer.
     #[inline]
-    pub fn new<'b>(state: &'b mut ProcessorState, handler: &'b mut H) -> Performer<'b, H> {
+    pub fn new<'b>(state: &'b mut ProcessorState<T>, handler: &'b mut H) -> Performer<'b, H, T> {
         Performer { state, handler }
     }
 }
@@ -902,9 +941,10 @@ impl StandardCharset {
     }
 }
 
-impl<'a, H> crate::Perform for Performer<'a, H>
+impl<'a, H, T> crate::Perform for Performer<'a, H, T>
 where
     H: Handler + 'a,
+    T: SyncHandler,
 {
     #[inline]
     fn print(&mut self, c: char) {
@@ -952,7 +992,7 @@ where
     fn unhook(&mut self) {
         match self.state.dcs {
             Some(Dcs::SyncStart) => {
-                self.state.sync_state.timeout = Some(Instant::now() + SYNC_UPDATE_TIMEOUT);
+                self.state.sync_state.handler.update_timeout(Some(SYNC_UPDATE_TIMEOUT));
             },
             Some(Dcs::SyncEnd) => (),
             _ => debug!("[unhandled unhook]"),
@@ -1621,7 +1661,7 @@ mod tests {
     fn parse_control_attribute() {
         static BYTES: &[u8] = &[0x1b, b'[', b'1', b'm'];
 
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in BYTES {
@@ -1635,7 +1675,7 @@ mod tests {
     fn parse_terminal_identity_csi() {
         let bytes: &[u8] = &[0x1b, b'[', b'1', b'c'];
 
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -1667,7 +1707,7 @@ mod tests {
     fn parse_terminal_identity_esc() {
         let bytes: &[u8] = &[0x1b, b'Z'];
 
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -1679,7 +1719,7 @@ mod tests {
 
         let bytes: &[u8] = &[0x1b, b'#', b'Z'];
 
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -1697,7 +1737,7 @@ mod tests {
             b'2', b'5', b'5', b'm',
         ];
 
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in BYTES {
@@ -1729,7 +1769,7 @@ mod tests {
         ];
 
         let mut handler = MockHandler::default();
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
 
         for byte in BYTES {
             parser.advance(&mut handler, *byte);
@@ -1739,7 +1779,7 @@ mod tests {
     #[test]
     fn parse_designate_g0_as_line_drawing() {
         static BYTES: &[u8] = &[0x1b, b'(', b'0'];
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in BYTES {
@@ -1753,7 +1793,7 @@ mod tests {
     #[test]
     fn parse_designate_g1_as_line_drawing_and_invoke() {
         static BYTES: &[u8] = &[0x1b, b')', b'0', 0x0e];
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in &BYTES[..3] {
@@ -1816,7 +1856,7 @@ mod tests {
     fn parse_osc4_set_color() {
         let bytes: &[u8] = b"\x1b]4;0;#fff\x1b\\";
 
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -1830,7 +1870,7 @@ mod tests {
     fn parse_osc104_reset_color() {
         let bytes: &[u8] = b"\x1b]104;1;\x1b\\";
 
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -1844,7 +1884,7 @@ mod tests {
     fn parse_osc104_reset_all_colors() {
         let bytes: &[u8] = b"\x1b]104;\x1b\\";
 
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -1859,7 +1899,7 @@ mod tests {
     fn parse_osc104_reset_all_colors_no_semicolon() {
         let bytes: &[u8] = b"\x1b]104\x1b\\";
 
-        let mut parser = Processor::new();
+        let mut parser: Processor = Processor::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
