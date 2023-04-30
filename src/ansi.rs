@@ -11,6 +11,9 @@ use core::{iter, str};
 
 use log::{debug, trace};
 
+#[cfg(feature = "ansi-serde")]
+use serde::{Deserialize, Serialize};
+
 use crate::{Params, ParamsIter};
 
 pub trait SyncHandler: Default {
@@ -64,6 +67,7 @@ pub struct Hyperlink {
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
+#[cfg_attr(feature = "ansi-serde", derive(Serialize, Deserialize))]
 pub struct Rgb {
     pub r: u8,
     pub g: u8,
@@ -691,6 +695,7 @@ pub enum TabulationClearMode {
 /// The order here matters since the enum should be castable to a `usize` for
 /// indexing a color list.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[cfg_attr(feature = "ansi-serde", derive(Serialize, Deserialize))]
 pub enum NamedColor {
     /// Black.
     Black = 0,
@@ -805,6 +810,7 @@ impl NamedColor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "ansi-serde", derive(Serialize, Deserialize))]
 pub enum Color {
     Named(NamedColor),
     Spec(Rgb),
