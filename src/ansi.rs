@@ -23,21 +23,31 @@ pub trait SyncHandler: Default {
 }
 
 #[cfg(not(feature = "no_std"))]
-pub type DefaultSyncHandler = StdTimeProvider;
+pub type DefaultSyncHandler = StdSyncHandler;
 
 #[cfg(not(feature = "no_std"))]
 #[derive(Default)]
-pub struct StdTimeProvider {
+pub struct StdSyncHandler {
     timeout: Option<std::time::Instant>,
 }
 
 #[cfg(not(feature = "no_std"))]
-impl SyncHandler for StdTimeProvider {
+impl StdSyncHandler {
+    /// Synchronized update expiration time.
+    #[inline]
+    pub fn sync_timeout(&self) -> Option<std::time::Instant> {
+        self.timeout
+    }
+}
+
+#[cfg(not(feature = "no_std"))]
+impl SyncHandler for StdSyncHandler {
     fn update_timeout(&mut self, duration: Option<Duration>) {
         use std::time::Instant;
         self.timeout = duration.map(|e| Instant::now() + e);
     }
 
+    #[inline]
     fn pending_timeout(&self) -> bool {
         self.timeout.is_some()
     }
@@ -214,6 +224,11 @@ impl<T: SyncHandler> Processor<T> {
     #[inline]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Synchronized update handler.
+    pub fn sync_handler(&self) -> &T {
+        &self.state.sync_state.handler
     }
 
     /// Process a new byte from the PTY.
