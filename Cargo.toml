@@ -22,7 +22,7 @@ serde = { version = "1.0.160", features = ["derive"], optional = true }
 
 [features]
 ansi = ["log"]
-ansi-serde = ["serde"]
+serde = ["dep:serde"]
 default = ["no_std"]
 no_std = ["arrayvec"]
 nightly = ["utf8parse/nightly"]
