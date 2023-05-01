@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// This module was originally part of the `alacritty_terminal` crate, which is
+// licensed under the Apache License, Version 2.0 and is part of the Alacritty
+// project (https://github.com/alacritty/alacritty).
+
 //! ANSI Terminal Stream Parsing.
 
 extern crate alloc;
