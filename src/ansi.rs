@@ -1,5 +1,7 @@
 //! ANSI Terminal Stream Parsing.
 
+extern crate alloc;
+
 use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
