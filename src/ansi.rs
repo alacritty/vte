@@ -24,58 +24,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Params, ParamsIter};
 
-pub trait SyncHandler: Default {
-    /// Expiration time of the synchronized update.
-    fn update_timeout(&mut self, _: Option<Duration>);
-    fn pending_timeout(&self) -> bool;
-}
-
-#[cfg(not(feature = "no_std"))]
-pub type DefaultSyncHandler = StdSyncHandler;
-
-#[cfg(not(feature = "no_std"))]
-#[derive(Default)]
-pub struct StdSyncHandler {
-    timeout: Option<std::time::Instant>,
-}
-
-#[cfg(not(feature = "no_std"))]
-impl StdSyncHandler {
-    /// Synchronized update expiration time.
-    #[inline]
-    pub fn sync_timeout(&self) -> Option<std::time::Instant> {
-        self.timeout
-    }
-}
-
-#[cfg(not(feature = "no_std"))]
-impl SyncHandler for StdSyncHandler {
-    fn update_timeout(&mut self, duration: Option<Duration>) {
-        use std::time::Instant;
-        self.timeout = duration.map(|e| Instant::now() + e);
-    }
-
-    #[inline]
-    fn pending_timeout(&self) -> bool {
-        self.timeout.is_some()
-    }
-}
-
-#[cfg(feature = "no_std")]
-pub type DefaultSyncHandler = NullTimeProvider;
-
-/// Time provider which always returns 0.
-#[derive(Default)]
-pub struct NullTimeProvider;
-
-impl SyncHandler for NullTimeProvider {
-    fn update_timeout(&mut self, _: Option<Duration>) {}
-
-    fn pending_timeout(&self) -> bool {
-        false
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Hyperlink {
     /// Identifier for the given hyperlink.
@@ -343,6 +291,60 @@ impl<'a, H: Handler + 'a, T: SyncHandler> Performer<'a, H, T> {
     pub fn new<'b>(state: &'b mut ProcessorState<T>, handler: &'b mut H) -> Performer<'b, H, T> {
         Performer { state, handler }
     }
+}
+
+#[cfg(not(feature = "no_std"))]
+pub type DefaultSyncHandler = StdSyncHandler;
+
+#[cfg(feature = "no_std")]
+pub type DefaultSyncHandler = NullTimeProvider;
+
+#[cfg(not(feature = "no_std"))]
+#[derive(Default)]
+pub struct StdSyncHandler {
+    timeout: Option<std::time::Instant>,
+}
+
+#[cfg(not(feature = "no_std"))]
+impl StdSyncHandler {
+    /// Synchronized update expiration time.
+    #[inline]
+    pub fn sync_timeout(&self) -> Option<std::time::Instant> {
+        self.timeout
+    }
+}
+
+#[cfg(not(feature = "no_std"))]
+impl SyncHandler for StdSyncHandler {
+    fn update_timeout(&mut self, duration: Option<Duration>) {
+        use std::time::Instant;
+        self.timeout = duration.map(|e| Instant::now() + e);
+    }
+
+    #[inline]
+    fn pending_timeout(&self) -> bool {
+        self.timeout.is_some()
+    }
+}
+
+/// Time provider which always returns 0.
+#[derive(Default)]
+pub struct NullTimeProvider;
+
+impl SyncHandler for NullTimeProvider {
+    #[inline]
+    fn update_timeout(&mut self, _: Option<Duration>) {}
+
+    #[inline]
+    fn pending_timeout(&self) -> bool {
+        false
+    }
+}
+
+pub trait SyncHandler: Default {
+    /// Expiration time of the synchronized update.
+    fn update_timeout(&mut self, _: Option<Duration>);
+    fn pending_timeout(&self) -> bool;
 }
 
 /// Type that handles actions from the parser.
