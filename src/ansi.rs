@@ -13,8 +13,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use core::convert::TryFrom;
-use core::fmt::Write;
+use core::fmt::{self, Display, Formatter, Write};
 use core::ops::{Add, Mul, Sub};
+use core::str::FromStr;
 use core::time::Duration;
 use core::{iter, str};
 
@@ -115,6 +116,38 @@ impl Sub<Rgb> for Rgb {
             r: self.r.saturating_sub(rhs.r),
             g: self.g.saturating_sub(rhs.g),
             b: self.b.saturating_sub(rhs.b),
+        }
+    }
+}
+
+impl Display for Rgb {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
+    }
+}
+
+impl FromStr for Rgb {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Rgb, ()> {
+        let chars = if s.starts_with("0x") && s.len() == 8 {
+            &s[2..]
+        } else if s.starts_with('#') && s.len() == 7 {
+            &s[1..]
+        } else {
+            return Err(());
+        };
+
+        match u32::from_str_radix(chars, 16) {
+            Ok(mut color) => {
+                let b = (color & 0xff) as u8;
+                color >>= 8;
+                let g = (color & 0xff) as u8;
+                color >>= 8;
+                let r = color as u8;
+                Ok(Rgb { r, g, b })
+            },
+            Err(_) => Err(()),
         }
     }
 }
