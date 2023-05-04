@@ -14,6 +14,7 @@ use alloc::vec::Vec;
 
 use core::convert::TryFrom;
 use core::fmt::Write;
+use core::ops::{Add, Mul, Sub};
 use core::time::Duration;
 use core::{iter, str};
 
@@ -38,6 +39,84 @@ pub struct Rgb {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+impl Rgb {
+    /// Implementation of [W3C's luminance algorithm].
+    ///
+    /// [W3C's luminance algorithm]: https://www.w3.org/TR/WCAG20/#relativeluminancedef
+    pub fn luminance(self) -> f64 {
+        let channel_luminance = |channel| {
+            let channel = channel as f64 / 255.;
+            if channel <= 0.03928 {
+                channel / 12.92
+            } else {
+                f64::powf((channel + 0.055) / 1.055, 2.4)
+            }
+        };
+
+        let r_luminance = channel_luminance(self.r);
+        let g_luminance = channel_luminance(self.g);
+        let b_luminance = channel_luminance(self.b);
+
+        0.2126 * r_luminance + 0.7152 * g_luminance + 0.0722 * b_luminance
+    }
+
+    /// Implementation of [W3C's contrast algorithm].
+    ///
+    /// [W3C's contrast algorithm]: https://www.w3.org/TR/WCAG20/#contrast-ratiodef
+    pub fn contrast(self, other: Rgb) -> f64 {
+        let self_luminance = self.luminance();
+        let other_luminance = other.luminance();
+
+        let (darker, lighter) = if self_luminance > other_luminance {
+            (other_luminance, self_luminance)
+        } else {
+            (self_luminance, other_luminance)
+        };
+
+        (lighter + 0.05) / (darker + 0.05)
+    }
+}
+
+// A multiply function for Rgb, as the default dim is just *2/3.
+impl Mul<f32> for Rgb {
+    type Output = Rgb;
+
+    fn mul(self, rhs: f32) -> Rgb {
+        let result = Rgb {
+            r: (f32::from(self.r) * rhs).clamp(0.0, 255.0) as u8,
+            g: (f32::from(self.g) * rhs).clamp(0.0, 255.0) as u8,
+            b: (f32::from(self.b) * rhs).clamp(0.0, 255.0) as u8,
+        };
+
+        trace!("Scaling RGB by {} from {:?} to {:?}", rhs, self, result);
+        result
+    }
+}
+
+impl Add<Rgb> for Rgb {
+    type Output = Rgb;
+
+    fn add(self, rhs: Rgb) -> Rgb {
+        Rgb {
+            r: self.r.saturating_add(rhs.r),
+            g: self.g.saturating_add(rhs.g),
+            b: self.b.saturating_add(rhs.b),
+        }
+    }
+}
+
+impl Sub<Rgb> for Rgb {
+    type Output = Rgb;
+
+    fn sub(self, rhs: Rgb) -> Rgb {
+        Rgb {
+            r: self.r.saturating_sub(rhs.r),
+            g: self.g.saturating_sub(rhs.g),
+            b: self.b.saturating_sub(rhs.b),
+        }
+    }
 }
 
 /// Maximum time before a synchronized update is aborted.
