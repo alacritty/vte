@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 
 use core::convert::TryFrom;
 use core::fmt::{self, Display, Formatter, Write};
-use core::ops::{Add, Mul, Sub};
+use core::ops::{Add, Sub};
 use core::str::FromStr;
 use core::time::Duration;
 use core::{iter, str};
@@ -46,6 +46,7 @@ impl Rgb {
     /// Implementation of [W3C's luminance algorithm].
     ///
     /// [W3C's luminance algorithm]: https://www.w3.org/TR/WCAG20/#relativeluminancedef
+    #[cfg(feature = "floats")]
     pub fn luminance(self) -> f64 {
         let channel_luminance = |channel| {
             let channel = channel as f64 / 255.;
@@ -66,6 +67,7 @@ impl Rgb {
     /// Implementation of [W3C's contrast algorithm].
     ///
     /// [W3C's contrast algorithm]: https://www.w3.org/TR/WCAG20/#contrast-ratiodef
+    #[cfg(feature = "floats")]
     pub fn contrast(self, other: Rgb) -> f64 {
         let self_luminance = self.luminance();
         let other_luminance = other.luminance();
@@ -81,7 +83,8 @@ impl Rgb {
 }
 
 // A multiply function for Rgb, as the default dim is just *2/3.
-impl Mul<f32> for Rgb {
+#[cfg(feature = "floats")]
+impl core::ops::Mul<f32> for Rgb {
     type Output = Rgb;
 
     fn mul(self, rhs: f32) -> Rgb {
