@@ -282,8 +282,17 @@ enum Dcs {
 }
 
 /// The processor wraps a `crate::Parser` to ultimately call methods on a Handler.
+#[cfg(not(feature = "no_std"))]
 #[derive(Default)]
 pub struct Processor<T: SyncHandler = DefaultSyncHandler> {
+    state: ProcessorState<T>,
+    parser: crate::Parser,
+}
+
+/// The processor wraps a `crate::Parser` to ultimately call methods on a Handler.
+#[cfg(feature = "no_std")]
+#[derive(Default)]
+pub struct Processor<T: SyncHandler> {
     state: ProcessorState<T>,
     parser: crate::Parser,
 }
@@ -406,12 +415,6 @@ impl<'a, H: Handler + 'a, T: SyncHandler> Performer<'a, H, T> {
 }
 
 #[cfg(not(feature = "no_std"))]
-pub type DefaultSyncHandler = StdSyncHandler;
-
-#[cfg(feature = "no_std")]
-pub type DefaultSyncHandler = NullTimeProvider;
-
-#[cfg(not(feature = "no_std"))]
 #[derive(Default)]
 pub struct StdSyncHandler {
     timeout: Option<std::time::Instant>,
@@ -436,20 +439,6 @@ impl SyncHandler for StdSyncHandler {
     #[inline]
     fn pending_timeout(&self) -> bool {
         self.timeout.is_some()
-    }
-}
-
-/// Time provider which always returns 0.
-#[derive(Default)]
-pub struct NullTimeProvider;
-
-impl SyncHandler for NullTimeProvider {
-    #[inline]
-    fn update_timeout(&mut self, _: Option<Duration>) {}
-
-    #[inline]
-    fn pending_timeout(&self) -> bool {
-        false
     }
 }
 
@@ -1747,6 +1736,21 @@ pub mod C0 {
 mod tests {
     use super::*;
 
+    #[derive(Default)]
+    pub struct TestSyncHandler;
+
+    impl SyncHandler for TestSyncHandler {
+        #[inline]
+        fn update_timeout(&mut self, _: Option<Duration>) {
+            unreachable!()
+        }
+
+        #[inline]
+        fn pending_timeout(&self) -> bool {
+            false
+        }
+    }
+
     struct MockHandler {
         index: CharsetIndex,
         charset: StandardCharset,
@@ -1804,7 +1808,7 @@ mod tests {
     fn parse_control_attribute() {
         static BYTES: &[u8] = &[0x1b, b'[', b'1', b'm'];
 
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in BYTES {
@@ -1818,7 +1822,7 @@ mod tests {
     fn parse_terminal_identity_csi() {
         let bytes: &[u8] = &[0x1b, b'[', b'1', b'c'];
 
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -1850,7 +1854,7 @@ mod tests {
     fn parse_terminal_identity_esc() {
         let bytes: &[u8] = &[0x1b, b'Z'];
 
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -1862,7 +1866,7 @@ mod tests {
 
         let bytes: &[u8] = &[0x1b, b'#', b'Z'];
 
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -1880,7 +1884,7 @@ mod tests {
             b'2', b'5', b'5', b'm',
         ];
 
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in BYTES {
@@ -1912,7 +1916,7 @@ mod tests {
         ];
 
         let mut handler = MockHandler::default();
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
 
         for byte in BYTES {
             parser.advance(&mut handler, *byte);
@@ -1922,7 +1926,7 @@ mod tests {
     #[test]
     fn parse_designate_g0_as_line_drawing() {
         static BYTES: &[u8] = &[0x1b, b'(', b'0'];
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in BYTES {
@@ -1936,7 +1940,7 @@ mod tests {
     #[test]
     fn parse_designate_g1_as_line_drawing_and_invoke() {
         static BYTES: &[u8] = &[0x1b, b')', b'0', 0x0e];
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in &BYTES[..3] {
@@ -1999,7 +2003,7 @@ mod tests {
     fn parse_osc4_set_color() {
         let bytes: &[u8] = b"\x1b]4;0;#fff\x1b\\";
 
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -2013,7 +2017,7 @@ mod tests {
     fn parse_osc104_reset_color() {
         let bytes: &[u8] = b"\x1b]104;1;\x1b\\";
 
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -2027,7 +2031,7 @@ mod tests {
     fn parse_osc104_reset_all_colors() {
         let bytes: &[u8] = b"\x1b]104;\x1b\\";
 
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
@@ -2042,7 +2046,7 @@ mod tests {
     fn parse_osc104_reset_all_colors_no_semicolon() {
         let bytes: &[u8] = b"\x1b]104\x1b\\";
 
-        let mut parser: Processor = Processor::new();
+        let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
         for byte in bytes {
