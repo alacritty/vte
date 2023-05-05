@@ -287,7 +287,7 @@ enum Dcs {
 /// The processor wraps a `crate::Parser` to ultimately call methods on a Handler.
 #[cfg(not(feature = "no_std"))]
 #[derive(Default)]
-pub struct Processor<T: SyncHandler = DefaultSyncHandler> {
+pub struct Processor<T: SyncHandler = StdSyncHandler> {
     state: ProcessorState<T>,
     parser: crate::Parser,
 }
