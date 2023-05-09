@@ -19,11 +19,29 @@ use core::str::FromStr;
 use core::time::Duration;
 use core::{iter, str};
 
+#[cfg(feature = "floats")]
+use core::ops::Mul;
+
 use log::{debug, trace};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{Params, ParamsIter};
+
+/// Maximum time before a synchronized update is aborted.
+const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
+
+/// Maximum number of bytes read in one synchronized update (2MiB).
+const SYNC_BUFFER_SIZE: usize = 0x20_0000;
+
+/// Number of bytes in the synchronized update DCS sequence before the passthrough parameters.
+const SYNC_ESCAPE_START_LEN: usize = 5;
+
+/// Start of the DCS sequence for beginning synchronized updates.
+const SYNC_START_ESCAPE_START: [u8; SYNC_ESCAPE_START_LEN] = [b'\x1b', b'P', b'=', b'1', b's'];
+
+/// Start of the DCS sequence for terminating synchronized updates.
+const SYNC_END_ESCAPE_START: [u8; SYNC_ESCAPE_START_LEN] = [b'\x1b', b'P', b'=', b'2', b's'];
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Hyperlink {
@@ -83,7 +101,7 @@ impl Rgb {
 
 // A multiply function for Rgb, as the default dim is just *2/3.
 #[cfg(feature = "floats")]
-impl core::ops::Mul<f32> for Rgb {
+impl Mul<f32> for Rgb {
     type Output = Rgb;
 
     fn mul(self, rhs: f32) -> Rgb {
@@ -153,21 +171,6 @@ impl FromStr for Rgb {
         }
     }
 }
-
-/// Maximum time before a synchronized update is aborted.
-const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
-
-/// Maximum number of bytes read in one synchronized update (2MiB).
-const SYNC_BUFFER_SIZE: usize = 0x20_0000;
-
-/// Number of bytes in the synchronized update DCS sequence before the passthrough parameters.
-const SYNC_ESCAPE_START_LEN: usize = 5;
-
-/// Start of the DCS sequence for beginning synchronized updates.
-const SYNC_START_ESCAPE_START: [u8; SYNC_ESCAPE_START_LEN] = [b'\x1b', b'P', b'=', b'1', b's'];
-
-/// Start of the DCS sequence for terminating synchronized updates.
-const SYNC_END_ESCAPE_START: [u8; SYNC_ESCAPE_START_LEN] = [b'\x1b', b'P', b'=', b'2', b's'];
 
 /// Parse colors in XParseColor format.
 fn xparse_color(color: &[u8]) -> Option<Rgb> {
