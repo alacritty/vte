@@ -20,7 +20,6 @@ use core::time::Duration;
 use core::{iter, str};
 
 use log::{debug, trace};
-
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
