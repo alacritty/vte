@@ -22,6 +22,9 @@ use core::{iter, str};
 #[cfg(feature = "floats")]
 use core::ops::Mul;
 
+#[cfg(not(feature = "no_std"))]
+use std::time::Instant;
+
 use log::{debug, trace};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -422,14 +425,14 @@ impl<'a, H: Handler + 'a, T: SyncHandler> Performer<'a, H, T> {
 #[cfg(not(feature = "no_std"))]
 #[derive(Default)]
 pub struct StdSyncHandler {
-    timeout: Option<std::time::Instant>,
+    timeout: Option<Instant>,
 }
 
 #[cfg(not(feature = "no_std"))]
 impl StdSyncHandler {
     /// Synchronized update expiration time.
     #[inline]
-    pub fn sync_timeout(&self) -> Option<std::time::Instant> {
+    pub fn sync_timeout(&self) -> Option<Instant> {
         self.timeout
     }
 }
@@ -437,7 +440,6 @@ impl StdSyncHandler {
 #[cfg(not(feature = "no_std"))]
 impl SyncHandler for StdSyncHandler {
     fn update_timeout(&mut self, duration: Option<Duration>) {
-        use std::time::Instant;
         self.timeout = duration.map(|e| Instant::now() + e);
     }
 
