@@ -319,11 +319,11 @@ impl<T: SyncHandler> Processor<T> {
     where
         H: Handler,
     {
-        if !self.state.sync_state.handler.pending_timeout() {
+        if self.state.sync_state.handler.pending_timeout() {
+            self.advance_sync(handler, byte);
+        } else {
             let mut performer = Performer::new(&mut self.state, handler);
             self.parser.advance(&mut performer, byte);
-        } else {
-            self.advance_sync(handler, byte);
         }
     }
 
