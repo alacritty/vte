@@ -246,7 +246,7 @@ fn parse_number(input: &[u8]) -> Option<u8> {
 
 /// Internal state for VTE processor.
 #[derive(Debug, Default)]
-struct ProcessorState<T: SyncHandler> {
+struct ProcessorState<T: Timeout> {
     /// Last processed character for repetition.
     preceding_char: Option<char>,
 
@@ -258,9 +258,9 @@ struct ProcessorState<T: SyncHandler> {
 }
 
 #[derive(Debug)]
-struct SyncState<T: SyncHandler> {
+struct SyncState<T: Timeout> {
     /// Handler for synchronized updates.
-    handler: T,
+    timeout: T,
 
     /// Sync DCS waiting for termination sequence.
     pending_dcs: Option<Dcs>,
@@ -269,12 +269,12 @@ struct SyncState<T: SyncHandler> {
     buffer: Vec<u8>,
 }
 
-impl<T: SyncHandler> Default for SyncState<T> {
+impl<T: Timeout> Default for SyncState<T> {
     fn default() -> Self {
         Self {
             buffer: Vec::with_capacity(SYNC_BUFFER_SIZE),
             pending_dcs: None,
-            handler: T::default(),
+            timeout: T::default(),
         }
     }
 }
@@ -292,7 +292,7 @@ enum Dcs {
 /// The processor wraps a `crate::Parser` to ultimately call methods on a Handler.
 #[cfg(not(feature = "no_std"))]
 #[derive(Default)]
-pub struct Processor<T: SyncHandler = StdSyncHandler> {
+pub struct Processor<T: Timeout = StdSyncHandler> {
     state: ProcessorState<T>,
     parser: crate::Parser,
 }
@@ -300,20 +300,20 @@ pub struct Processor<T: SyncHandler = StdSyncHandler> {
 /// The processor wraps a `crate::Parser` to ultimately call methods on a Handler.
 #[cfg(feature = "no_std")]
 #[derive(Default)]
-pub struct Processor<T: SyncHandler> {
+pub struct Processor<T: Timeout> {
     state: ProcessorState<T>,
     parser: crate::Parser,
 }
 
-impl<T: SyncHandler> Processor<T> {
+impl<T: Timeout> Processor<T> {
     #[inline]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Synchronized update handler.
-    pub fn sync_handler(&self) -> &T {
-        &self.state.sync_state.handler
+    /// Synchronized update timeout.
+    pub fn sync_timeout(&self) -> &T {
+        &self.state.sync_state.timeout
     }
 
     /// Process a new byte from the PTY.
@@ -322,7 +322,7 @@ impl<T: SyncHandler> Processor<T> {
     where
         H: Handler,
     {
-        if self.state.sync_state.handler.pending_timeout() {
+        if self.state.sync_state.timeout.pending_timeout() {
             self.advance_sync(handler, byte);
         } else {
             let mut performer = Performer::new(&mut self.state, handler);
@@ -344,7 +344,7 @@ impl<T: SyncHandler> Processor<T> {
 
         // Resetting state after processing makes sure we don't interpret buffered sync escapes.
         self.state.sync_state.buffer.clear();
-        self.state.sync_state.handler.update_timeout(None);
+        self.state.sync_state.timeout.clear_timeout();
     }
 
     /// Number of bytes in the synchronization buffer.
@@ -396,7 +396,7 @@ impl<T: SyncHandler> Processor<T> {
             // Dispatch on ESC.
             0x1b => match self.state.sync_state.pending_dcs.take() {
                 Some(Dcs::SyncStart) => {
-                    self.state.sync_state.handler.update_timeout(Some(SYNC_UPDATE_TIMEOUT));
+                    self.state.sync_state.timeout.set_timeout(SYNC_UPDATE_TIMEOUT);
                 },
                 Some(Dcs::SyncEnd) => self.stop_sync(handler),
                 None => (),
@@ -409,12 +409,12 @@ impl<T: SyncHandler> Processor<T> {
 ///
 /// Processor creates a Performer when running advance and passes the Performer
 /// to `crate::Parser`.
-struct Performer<'a, H: Handler, T: SyncHandler> {
+struct Performer<'a, H: Handler, T: Timeout> {
     state: &'a mut ProcessorState<T>,
     handler: &'a mut H,
 }
 
-impl<'a, H: Handler + 'a, T: SyncHandler> Performer<'a, H, T> {
+impl<'a, H: Handler + 'a, T: Timeout> Performer<'a, H, T> {
     /// Create a performer.
     #[inline]
     pub fn new<'b>(state: &'b mut ProcessorState<T>, handler: &'b mut H) -> Performer<'b, H, T> {
@@ -438,9 +438,15 @@ impl StdSyncHandler {
 }
 
 #[cfg(not(feature = "no_std"))]
-impl SyncHandler for StdSyncHandler {
-    fn update_timeout(&mut self, duration: Option<Duration>) {
-        self.timeout = duration.map(|e| Instant::now() + e);
+impl Timeout for StdSyncHandler {
+    #[inline]
+    fn set_timeout(&mut self, duration: Duration) {
+        self.timeout = Some(Instant::now() + duration);
+    }
+
+    #[inline]
+    fn clear_timeout(&mut self) {
+        self.timeout = None;
     }
 
     #[inline]
@@ -449,9 +455,14 @@ impl SyncHandler for StdSyncHandler {
     }
 }
 
-pub trait SyncHandler: Default {
-    /// Expiration time of the synchronized update.
-    fn update_timeout(&mut self, _: Option<Duration>);
+pub trait Timeout: Default {
+    /// Sets the timeout for the next synchronized update. The `duration` parameter
+    /// specifies the duration of the timeout. Once the timeout has elapsed, the
+    /// synchronized update can be performed.
+    fn set_timeout(&mut self, duration: Duration);
+    /// Clear the current timeout.
+    fn clear_timeout(&mut self);
+    /// Returns whether a timeout is currently pending.
     fn pending_timeout(&self) -> bool;
 }
 
@@ -1083,7 +1094,7 @@ impl StandardCharset {
 impl<'a, H, T> crate::Perform for Performer<'a, H, T>
 where
     H: Handler + 'a,
-    T: SyncHandler,
+    T: Timeout,
 {
     #[inline]
     fn print(&mut self, c: char) {
@@ -1131,7 +1142,7 @@ where
     fn unhook(&mut self) {
         match self.state.dcs {
             Some(Dcs::SyncStart) => {
-                self.state.sync_state.handler.update_timeout(Some(SYNC_UPDATE_TIMEOUT));
+                self.state.sync_state.timeout.set_timeout(SYNC_UPDATE_TIMEOUT);
             },
             Some(Dcs::SyncEnd) => (),
             _ => debug!("[unhandled unhook]"),
@@ -1746,9 +1757,14 @@ mod tests {
     #[derive(Default)]
     pub struct TestSyncHandler;
 
-    impl SyncHandler for TestSyncHandler {
+    impl Timeout for TestSyncHandler {
         #[inline]
-        fn update_timeout(&mut self, _: Option<Duration>) {
+        fn set_timeout(&mut self, _: Duration) {
+            unreachable!()
+        }
+
+        #[inline]
+        fn clear_timeout(&mut self) {
             unreachable!()
         }
 
