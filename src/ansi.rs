@@ -19,7 +19,7 @@ use core::str::FromStr;
 use core::time::Duration;
 use core::{iter, str};
 
-#[cfg(feature = "floats")]
+#[cfg(not(feature = "no_std"))]
 use core::ops::Mul;
 
 #[cfg(not(feature = "no_std"))]
@@ -66,7 +66,7 @@ impl Rgb {
     /// Implementation of [W3C's luminance algorithm].
     ///
     /// [W3C's luminance algorithm]: https://www.w3.org/TR/WCAG20/#relativeluminancedef
-    #[cfg(feature = "floats")]
+    #[cfg(not(feature = "no_std"))]
     pub fn luminance(self) -> f64 {
         let channel_luminance = |channel| {
             let channel = channel as f64 / 255.;
@@ -87,7 +87,7 @@ impl Rgb {
     /// Implementation of [W3C's contrast algorithm].
     ///
     /// [W3C's contrast algorithm]: https://www.w3.org/TR/WCAG20/#contrast-ratiodef
-    #[cfg(feature = "floats")]
+    #[cfg(not(feature = "no_std"))]
     pub fn contrast(self, other: Rgb) -> f64 {
         let self_luminance = self.luminance();
         let other_luminance = other.luminance();
@@ -103,7 +103,7 @@ impl Rgb {
 }
 
 // A multiply function for Rgb, as the default dim is just *2/3.
-#[cfg(feature = "floats")]
+#[cfg(not(feature = "no_std"))]
 impl Mul<f32> for Rgb {
     type Output = Rgb;
 
