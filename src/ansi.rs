@@ -456,9 +456,9 @@ impl Timeout for StdSyncHandler {
 }
 
 pub trait Timeout: Default {
-    /// Sets the timeout for the next synchronized update. The `duration` parameter
-    /// specifies the duration of the timeout. Once the timeout has elapsed, the
-    /// synchronized update can be performed.
+    /// Sets the timeout for the next synchronized update.
+    ///
+    /// The `duration` parameter specifies the duration of the timeout. Once the timeout has elapsed, the synchronized update can be performed.
     fn set_timeout(&mut self, duration: Duration);
     /// Clear the current timeout.
     fn clear_timeout(&mut self);
