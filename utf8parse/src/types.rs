@@ -26,9 +26,10 @@ pub enum Action {
 /// There is a state for each initial input of the 3 and 4 byte sequences since
 /// the following bytes are subject to different conditions than a tail byte.
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum State {
     /// Ground state; expect anything
+    #[default]
     Ground = 0,
     /// 3 tail bytes
     Tail3 = 1,
@@ -44,12 +45,6 @@ pub enum State {
     Utf8_4_3_f0 = 6,
     /// UTF8-4 starting with F4
     Utf8_4_3_f4 = 7,
-}
-
-impl Default for State {
-    fn default() -> State {
-        State::Ground
-    }
 }
 
 impl State {

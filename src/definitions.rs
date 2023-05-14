@@ -1,7 +1,7 @@
 use core::mem;
 
 #[allow(dead_code)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone)]
 pub enum State {
     Anywhere = 0,
     CsiEntry = 1,
@@ -15,16 +15,11 @@ pub enum State {
     DcsPassthrough = 9,
     Escape = 10,
     EscapeIntermediate = 11,
+    #[default]
     Ground = 12,
     OscString = 13,
     SosPmApcString = 14,
     Utf8 = 15,
-}
-
-impl Default for State {
-    fn default() -> State {
-        State::Ground
-    }
 }
 
 #[allow(dead_code)]

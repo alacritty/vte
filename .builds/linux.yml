@@ -7,15 +7,17 @@ tasks:
   - stable: |
       cd vte
       $HOME/.cargo/bin/cargo +stable test
+      $HOME/.cargo/bin/cargo +stable test --features=ansi
   - clippy: |
       cd vte
       $HOME/.cargo/bin/cargo +stable clippy
+      $HOME/.cargo/bin/cargo +stable clippy --features=ansi
   - rustfmt: |
       $HOME/.cargo/bin/rustup toolchain install nightly -c rustfmt
       cd vte
       $HOME/.cargo/bin/cargo +nightly fmt -- --check
-  - 1-56-0: |
-      $HOME/.cargo/bin/rustup toolchain install --profile minimal 1.56.0
+  - 1-62-1: |
+      $HOME/.cargo/bin/rustup toolchain install --profile minimal 1.62.1
       cd vte
       rm Cargo.lock
-      $HOME/.cargo/bin/cargo +1.56.0 test
+      $HOME/.cargo/bin/cargo +1.62.1 test
