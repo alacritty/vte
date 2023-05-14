@@ -455,8 +455,7 @@ impl Timeout for StdSyncHandler {
     }
 }
 
-/// Provides an interface for common timer functionality (i.e.
-/// creating timeouts and checking if it has been expired).
+/// Interface for creating timeouts and checking their expiry.
 ///
 /// This is internally used by the [`Processor`] to handle synchronized
 /// updates.
