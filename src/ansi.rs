@@ -455,14 +455,21 @@ impl Timeout for StdSyncHandler {
     }
 }
 
+/// Provides an interface for common timer functionality (i.e.
+/// creating timeouts and checking if it has been expired).
+///
+/// This is internally used by the [`Processor`] to handle synchronized
+/// updates.
 pub trait Timeout: Default {
     /// Sets the timeout for the next synchronized update.
     ///
-    /// The `duration` parameter specifies the duration of the timeout. Once the timeout has elapsed, the synchronized update can be performed.
+    /// The `duration` parameter specifies the duration of the timeout. Once the
+    /// specified duration has elapsed, the synchronized update rotuine can be
+    /// performed.
     fn set_timeout(&mut self, duration: Duration);
     /// Clear the current timeout.
     fn clear_timeout(&mut self);
-    /// Returns whether a timeout is currently pending.
+    /// Returns whether a timeout is currently active and has not yet expired.
     fn pending_timeout(&self) -> bool;
 }
 
