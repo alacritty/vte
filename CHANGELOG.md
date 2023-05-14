@@ -1,6 +1,13 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Minimum rust version has been bumped to 1.62.1
+- Support for ANSI terminal stream parsing under the `ansi` feature.
+- Addition of the `serde` feature which additionally derives `Serialize` and `Deserialize` 
+  for the types provided in the `ansi` module.
+
 ## 0.11.0
 
 - Minimum rust version has been bumped to 1.56.0
