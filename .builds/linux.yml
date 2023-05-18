@@ -8,6 +8,7 @@ tasks:
       cd vte
       $HOME/.cargo/bin/cargo +stable test
       $HOME/.cargo/bin/cargo +stable test --features=ansi
+      $HOME/.cargo/bin/cargo +stable test --features=ansi --no-default-features
   - clippy: |
       cd vte
       $HOME/.cargo/bin/cargo +stable clippy
