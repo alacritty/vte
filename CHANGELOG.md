@@ -1,7 +1,7 @@
 CHANGELOG
 =========
 
-## Unreleased
+## 0.11.1
 
 - Minimum rust version has been bumped to 1.62.1
 - Support for ANSI terminal stream parsing under the `ansi` feature.
