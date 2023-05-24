@@ -678,9 +678,10 @@ pub struct CursorStyle {
 }
 
 /// Terminal cursor shape.
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
+#[derive(Debug, Default, Eq, PartialEq, Copy, Clone, Hash)]
 pub enum CursorShape {
     /// Cursor is a block like `▒`.
+    #[default]
     Block,
 
     /// Cursor is an underscore like `_`.
@@ -694,12 +695,6 @@ pub enum CursorShape {
 
     /// Invisible cursor.
     Hidden,
-}
-
-impl Default for CursorShape {
-    fn default() -> CursorShape {
-        CursorShape::Block
-    }
 }
 
 /// Terminal modes.
@@ -1023,32 +1018,22 @@ pub enum Attr {
 }
 
 /// Identifiers which can be assigned to a graphic character set.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CharsetIndex {
     /// Default set, is designated as ASCII at startup.
+    #[default]
     G0,
     G1,
     G2,
     G3,
 }
 
-impl Default for CharsetIndex {
-    fn default() -> Self {
-        CharsetIndex::G0
-    }
-}
-
 /// Standard or common character sets which can be designated as G0-G3.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StandardCharset {
+    #[default]
     Ascii,
     SpecialCharacterAndLineDrawing,
-}
-
-impl Default for StandardCharset {
-    fn default() -> Self {
-        StandardCharset::Ascii
-    }
 }
 
 impl StandardCharset {
