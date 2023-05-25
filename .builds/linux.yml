@@ -17,8 +17,9 @@ tasks:
       $HOME/.cargo/bin/rustup toolchain install nightly -c rustfmt
       cd vte
       $HOME/.cargo/bin/cargo +nightly fmt -- --check
-  - 1-62-1: |
-      $HOME/.cargo/bin/rustup toolchain install --profile minimal 1.62.1
+  - msrv: |
       cd vte
+      msrv=$(cat Cargo.toml | grep "rust-version" | sed 's/.*"\(.*\)".*/\1/')
+      $HOME/.cargo/bin/rustup toolchain install --profile minimal $msrv
       rm Cargo.lock
-      $HOME/.cargo/bin/cargo +1.62.1 test
+      $HOME/.cargo/bin/cargo +$msrv test
