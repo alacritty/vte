@@ -11,7 +11,7 @@ license = "Apache-2.0 OR MIT"
 version = "0.11.1"
 name = "vte"
 edition = "2021"
-rust-version = "1.56.0"
+rust-version = "1.62.1"
 
 [dependencies]
 vte_generate_state_changes = { version = "0.1.0", path = "vte_generate_state_changes" }
