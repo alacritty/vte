@@ -73,8 +73,7 @@ impl<'a, P: Perform> utf8::Receiver for VtUtf8Receiver<'a, P> {
 /// [`Perform`]: trait.Perform.html
 ///
 /// Generic over the value for the size of the raw Operating System Command
-/// buffer, but that only has an effect in when the `no_std` feature is enabled
-/// and can be ignored otherwise.
+/// buffer. Only used when the `no_std` feature is enabled.
 #[derive(Default)]
 pub struct Parser<const OSC_RAW_BUF_SIZE: usize = MAX_OSC_RAW> {
     state: State,
