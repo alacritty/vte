@@ -961,6 +961,76 @@ mod tests {
             _ => panic!("expected csi sequence"),
         }
     }
+
+    #[cfg(feature = "no_std")]
+    #[test]
+    fn exceed_fixed_osc_buffer_size() {
+        const OSC_BUFFER_SIZE: usize = 32;
+        static NUM_BYTES: usize = OSC_BUFFER_SIZE + 100;
+        static INPUT_START: &[u8] = b"\x1b]52;";
+        static INPUT_END: &[u8] = b"\x07";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser: Parser<OSC_BUFFER_SIZE> = Parser::new_with_size();
+
+        // Create valid OSC escape
+        for byte in INPUT_START {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        // Exceed max buffer size
+        for _ in 0..NUM_BYTES {
+            parser.advance(&mut dispatcher, b'a');
+        }
+
+        // Terminate escape for dispatch
+        for byte in INPUT_END {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.dispatched.len(), 1);
+        match &dispatcher.dispatched[0] {
+            Sequence::Osc(params, _) => {
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0], b"52");
+                assert_eq!(params[1].len(), OSC_BUFFER_SIZE - params[0].len());
+                for item in params[1].iter() {
+                    assert_eq!(*item, b'a');
+                }
+            },
+            _ => panic!("expected osc sequence"),
+        }
+    }
+
+    #[cfg(feature = "no_std")]
+    #[test]
+    fn fixed_size_osc_containing_string_terminator() {
+        static INPUT_START: &[u8] = b"\x1b]2;";
+        static INPUT_MIDDLE: &[u8] = b"s\xe6\x9c\xab";
+        static INPUT_END: &[u8] = b"\x1b\\";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser: Parser<5> = Parser::new_with_size();
+
+        for byte in INPUT_START {
+            parser.advance(&mut dispatcher, *byte);
+        }
+        for byte in INPUT_MIDDLE {
+            parser.advance(&mut dispatcher, *byte);
+        }
+        for byte in INPUT_END {
+            parser.advance(&mut dispatcher, *byte);
+        }
+
+        assert_eq!(dispatcher.dispatched.len(), 2);
+        match &dispatcher.dispatched[0] {
+            Sequence::Osc(params, false) => {
+                assert_eq!(params[0], b"2");
+                assert_eq!(params[1], INPUT_MIDDLE);
+            },
+            _ => panic!("expected osc sequence"),
+        }
+    }
 }
 
 #[cfg(all(feature = "nightly", test))]
