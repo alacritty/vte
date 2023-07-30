@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Add support for OSC 22
+
 ## 0.11.1
 
 - Minimum rust version has been bumped to 1.62.1
