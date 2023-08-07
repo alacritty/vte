@@ -25,6 +25,7 @@ use core::ops::Mul;
 #[cfg(not(feature = "no_std"))]
 use std::time::Instant;
 
+use cursor_icon::CursorIcon;
 use log::{debug, trace};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -668,6 +669,9 @@ pub trait Handler {
 
     /// Set hyperlink.
     fn set_hyperlink(&mut self, _: Option<Hyperlink>) {}
+
+    /// Set mouse cursor icon.
+    fn set_mouse_cursor_icon(&mut self, _: CursorIcon) {}
 }
 
 /// Terminal cursor configuration.
@@ -1265,6 +1269,15 @@ where
                     }
                 }
                 unhandled(params);
+            },
+
+            // Set mouse cursor shape.
+            b"22" if params.len() == 2 => {
+                let shape = String::from_utf8_lossy(params[1]);
+                match CursorIcon::from_str(&shape) {
+                    Ok(cursor_icon) => self.handler.set_mouse_cursor_icon(cursor_icon),
+                    Err(_) => debug!("[osc 22] unrecognized cursor icon shape: {shape:?}"),
+                }
             },
 
             // Set cursor style.
