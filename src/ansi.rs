@@ -675,49 +675,38 @@ pub trait Handler {
     fn set_mouse_cursor_icon(&mut self, _: CursorIcon) {}
 
     /// Report current keyboard mode.
-    ///
-    /// ## Caveat
-    ///
-    /// This request must be done successively with the [`identify_terminal`] request, given
-    /// clients rely on the later to identify whether the terminal suppors kitty's keyboard
-    /// protocol.
-    ///
-    /// [`identify_terminal`]: Self::identify_terminal
     fn report_keyboard_mode(&mut self) {}
 
     /// Push keyboard mode into the keyboard mode stack.
-    fn push_keyboard_mode(&mut self, _mode: KeyboardMode) {}
+    fn push_keyboard_mode(&mut self, _mode: KeyboardModes) {}
 
     /// Pop the given amount of keyboard modes from the
     /// keyboard mode stack.
-    fn pop_num_keyboard_modes(&mut self, _to_pop: u16) {}
+    fn pop_keyboard_modes(&mut self, _to_pop: u16) {}
 
     /// Set the [`keyboard mode`] using the given [`behavior`].
     ///
-    /// [`keyboard mode`]: crate::ansi::KeyboardMode
-    /// [`behavior`]: crate::ansi::KeyboardModeApplyBehavior
-    fn set_keyboard_mode(&mut self, _mode: KeyboardMode, _behavior: KeyboardModeApplyBehavior) {}
+    /// [`keyboard mode`]: crate::ansi::KeyboardModes
+    /// [`behavior`]: crate::ansi::KeyboardModesApplyBehavior
+    fn set_keyboard_mode(&mut self, _mode: KeyboardModes, _behavior: KeyboardModesApplyBehavior) {}
 }
 
 bitflags! {
-    /// The keyboard mode representing [`kitty keyboard protocol'].
-    ///
-    /// The details on how to build the escape sequences could be found in the
-    /// mentioned specification.
+    /// A set of [`kitty keyboard protocol'] modes.
     ///
     /// [`kitty keyboard protocol']: https://sw.kovidgoyal.net/kitty/keyboard-protocol
     #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct KeyboardMode : u8 {
-        /// No particular mode is being set.
+    pub struct KeyboardModes : u8 {
+        /// No keyboard protocol mode is set.
         const NO_MODE                 = 0b0000_0000;
         /// Report `Esc`, `alt` + `key`, `ctrl` + `key`, `ctrl` + `alt` + `key`, `shift`
-        /// + `alt` + `key` keys using `CSI u` sequence instead of legacy ones.
+        /// + `alt` + `key` keys using `CSI u` sequence instead of raw ones.
         const DISAMBIGUATE_ESC_CODES  = 0b0000_0001;
-        /// Report key presses, release, repeat along side the escape. If the
-        /// key event results in text the type is not support for it, unless
-        /// [`REPORT_ALL_KEYS_AS_ESC`] is enabled.
+        /// Report key presses, release, and repetition alongside the escape. Key events
+        /// that result in text are reported as plain UTF-8, unless the
+        /// [`Self::REPORT_ALL_KEYS_AS_ESC`] is enabled.
         const REPORT_EVENT_TYPES      = 0b0000_0010;
-        /// Report alternative value in pair with original value.
+        /// Additionally report shifted key an dbase layout key.
         const REPORT_ALTERNATE_KEYS   = 0b0000_0100;
         /// Report every key as an escape sequence.
         const REPORT_ALL_KEYS_AS_ESC  = 0b0000_1000;
@@ -726,10 +715,10 @@ bitflags! {
     }
 }
 
-/// Describes how the new [`KeyboardMode`] should be applied.
+/// Describes how the new [`KeyboardModes`] should be applied.
 #[repr(u8)]
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
-pub enum KeyboardModeApplyBehavior {
+pub enum KeyboardModesApplyBehavior {
     /// Replace the active flags with the new ones.
     #[default]
     Replace,
@@ -1575,22 +1564,22 @@ where
             },
             ('u', [b'?']) => handler.report_keyboard_mode(),
             ('u', [b'=']) => {
-                let mode = KeyboardMode::from_bits_truncate(next_param_or(0) as u8);
+                let mode = KeyboardModes::from_bits_truncate(next_param_or(0) as u8);
                 let behavior = match next_param_or(1) {
-                    3 => KeyboardModeApplyBehavior::Difference,
-                    2 => KeyboardModeApplyBehavior::Union,
+                    3 => KeyboardModesApplyBehavior::Difference,
+                    2 => KeyboardModesApplyBehavior::Union,
                     // Default is replace.
-                    _ => KeyboardModeApplyBehavior::Replace,
+                    _ => KeyboardModesApplyBehavior::Replace,
                 };
                 handler.set_keyboard_mode(mode, behavior);
             },
             ('u', [b'>']) => {
-                let mode = KeyboardMode::from_bits_truncate(next_param_or(0) as u8);
+                let mode = KeyboardModes::from_bits_truncate(next_param_or(0) as u8);
                 handler.push_keyboard_mode(mode);
             },
             ('u', [b'<']) => {
                 // The default is 1.
-                handler.pop_num_keyboard_modes(next_param_or(1));
+                handler.pop_keyboard_modes(next_param_or(1));
             },
             ('u', []) => handler.restore_cursor_position(),
             ('X', []) => handler.erase_chars(next_param_or(1) as usize),
