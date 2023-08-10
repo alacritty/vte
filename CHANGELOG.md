@@ -4,6 +4,7 @@ CHANGELOG
 ## Unreleased
 
 - Add support for OSC 22
+- Add support for kitty keyboard protocol
 
 ## 0.11.1
 

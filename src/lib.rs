@@ -374,7 +374,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
 /// movement, or simply printing characters to the screen.
 ///
 /// The methods on this type correspond to actions described in
-/// http://vt100.net/emu/dec_ansi_parser. I've done my best to describe them in
+/// <http://vt100.net/emu/dec_ansi_parser>. I've done my best to describe them in
 /// a useful way in my own words for completeness, but the site should be
 /// referenced if something isn't clear. If the site disappears at some point in
 /// the future, consider checking archive.org.
