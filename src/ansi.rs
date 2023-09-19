@@ -775,8 +775,6 @@ pub enum Mode {
     SwapScreenAndSetRestoreCursor = 1049,
     /// ?2004
     BracketedPaste = 2004,
-    /// Synchronized update start/end.
-    SyncUpdate = 2026,
 }
 
 impl Mode {
@@ -806,7 +804,6 @@ impl Mode {
                 1042 => Mode::UrgencyHints,
                 1049 => Mode::SwapScreenAndSetRestoreCursor,
                 2004 => Mode::BracketedPaste,
-                2026 => Mode::SyncUpdate,
                 _ => {
                     trace!("[unimplemented] primitive mode: {}", num);
                     return None;
@@ -1421,10 +1418,14 @@ where
             },
             ('h', intermediates) => {
                 for param in params_iter.map(|param| param[0]) {
-                    match Mode::from_primitive(intermediates.first(), param) {
-                        Some(Mode::SyncUpdate) => {
-                            self.state.sync_state.timeout.set_timeout(SYNC_UPDATE_TIMEOUT)
-                        },
+                    let intermediate = intermediates.first();
+
+                    // Handle sync updates opaquely.
+                    if intermediate == Some(&b'?') && param == 2026 {
+                        self.state.sync_state.timeout.set_timeout(SYNC_UPDATE_TIMEOUT);
+                    }
+
+                    match Mode::from_primitive(intermediate, param) {
                         Some(mode) => handler.set_mode(mode),
                         None => unhandled!(),
                     }
@@ -1462,7 +1463,6 @@ where
             ('l', intermediates) => {
                 for param in params_iter.map(|param| param[0]) {
                     match Mode::from_primitive(intermediates.first(), param) {
-                        Some(Mode::SyncUpdate) => debug!("sync update end without start"),
                         Some(mode) => handler.unset_mode(mode),
                         None => unhandled!(),
                     }
