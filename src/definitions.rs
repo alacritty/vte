@@ -1,6 +1,7 @@
 use core::mem;
 
 #[allow(dead_code)]
+#[repr(u8)]
 #[derive(Debug, Default, Copy, Clone)]
 pub enum State {
     Anywhere = 0,
@@ -23,6 +24,7 @@ pub enum State {
 }
 
 #[allow(dead_code)]
+#[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
     None = 0,
