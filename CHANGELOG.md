@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Reexport `cursor_icon` crate in `ansi`
+
 ## 0.12.0
 
 - Add support for OSC 22

@@ -33,6 +33,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Params, ParamsIter};
 
+#[doc(inline)]
+pub use cursor_icon;
+
 /// Maximum time before a synchronized update is aborted.
 const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
 
