@@ -820,7 +820,6 @@ impl From<NamedMode> for Mode {
 pub enum NamedMode {
     /// IRM Insert Mode.
     Insert = 4,
-    /// 20.
     LineFeedNewLine = 20,
 }
 
@@ -1503,19 +1502,19 @@ where
                 let x = next_param_or(1) as usize;
                 handler.goto(y - 1, x - 1);
             },
-            ('h', intermediates) => {
-                let is_private = intermediates.first() == Some(&b'?');
+            ('h', []) => {
+                for param in params_iter.map(|param| param[0]) {
+                    handler.set_mode(Mode::new(param))
+                }
+            },
+            ('h', [b'?']) => {
                 for param in params_iter.map(|param| param[0]) {
                     // Handle sync updates opaquely.
-                    if is_private && param == NamedPrivateMode::SyncUpdate as u16 {
+                    if param == NamedPrivateMode::SyncUpdate as u16 {
                         self.state.sync_state.timeout.set_timeout(SYNC_UPDATE_TIMEOUT);
                     }
 
-                    if is_private {
-                        handler.set_private_mode(PrivateMode::new(param))
-                    } else {
-                        handler.set_mode(Mode::new(param))
-                    };
+                    handler.set_private_mode(PrivateMode::new(param))
                 }
             },
             ('I', []) => handler.move_forward_tabs(next_param_or(1)),
@@ -1547,14 +1546,14 @@ where
                 handler.clear_line(mode);
             },
             ('L', []) => handler.insert_blank_lines(next_param_or(1) as usize),
-            ('l', intermediates) => {
-                let is_private = intermediates.first() == Some(&b'?');
+            ('l', []) => {
                 for param in params_iter.map(|param| param[0]) {
-                    if is_private {
-                        handler.unset_private_mode(PrivateMode::new(param))
-                    } else {
-                        handler.unset_mode(Mode::new(param))
-                    };
+                    handler.unset_mode(Mode::new(param))
+                }
+            },
+            ('l', [b'?']) => {
+                for param in params_iter.map(|param| param[0]) {
+                    handler.unset_private_mode(PrivateMode::new(param))
                 }
             },
             ('M', []) => handler.delete_lines(next_param_or(1) as usize),
