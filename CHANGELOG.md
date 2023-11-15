@@ -4,6 +4,8 @@ CHANGELOG
 ## Unreleased
 
 - Reexport `cursor_icon` crate in `ansi`
+- Split `set_mode` into `set_private_mode` and `set_public_mode`
+- Split `unset_mode` into `unset_private_mode` and `unset_public_mode`
 
 ## 0.12.0
 
