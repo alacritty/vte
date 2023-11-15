@@ -579,16 +579,16 @@ pub trait Handler {
     /// Set a terminal attribute.
     fn terminal_attribute(&mut self, _attr: Attr) {}
 
-    /// Set private mode.
-    fn set_public_mode(&mut self, _mode: PublicMode) {}
+    /// Set mode.
+    fn set_mode(&mut self, _mode: Mode) {}
 
-    /// Unset public mode.
-    fn unset_public_mode(&mut self, _mode: PublicMode) {}
+    /// Unset mode.
+    fn unset_mode(&mut self, _mode: Mode) {}
 
     /// Set private mode.
     fn set_private_mode(&mut self, _mode: PrivateMode) {}
 
-    /// Unset mode.
+    /// Unset private mode.
     fn unset_private_mode(&mut self, _mode: PrivateMode) {}
 
     /// DECSTBM - Set the terminal scrolling region.
@@ -781,91 +781,87 @@ pub enum CursorShape {
     Hidden,
 }
 
-/// Wrapper for the public mode.
+/// Wrapper for the ANSI modes.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum PublicMode {
-    /// Known public mode.
-    Named(NamedPublicMode),
+pub enum Mode {
+    /// Known ANSI mode.
+    Named(NamedMode),
     /// Unidentified publc mode.
-    Unidentified(u16),
+    Unknown(u16),
 }
 
-impl PublicMode {
+impl Mode {
     fn new(mode: u16) -> Self {
-        let named = match mode {
-            4 => NamedPublicMode::Insert,
-            20 => NamedPublicMode::LineFeedNewLine,
-            _ => return Self::Unidentified(mode),
-        };
-
-        Self::Named(named)
+        match mode {
+            4 => Self::Named(NamedMode::Insert),
+            20 => Self::Named(NamedMode::LineFeedNewLine),
+            _ => Self::Unknown(mode),
+        }
     }
 
     /// Get the raw value of the mode.
     pub fn raw(self) -> u16 {
         match self {
             Self::Named(named) => named as u16,
-            Self::Unidentified(mode) => mode,
+            Self::Unknown(mode) => mode,
         }
     }
 }
 
-impl From<NamedPublicMode> for PublicMode {
-    fn from(value: NamedPublicMode) -> Self {
+impl From<NamedMode> for Mode {
+    fn from(value: NamedMode) -> Self {
         Self::Named(value)
     }
 }
 
-/// Public modes.
+/// ANSI modes.
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum NamedPublicMode {
+pub enum NamedMode {
     /// IRM Insert Mode.
     Insert = 4,
     /// 20.
     LineFeedNewLine = 20,
 }
 
-/// Wrapper for the private modes.
+/// Wrapper for the private DEC modes.
 #[derive(Debug, Eq, PartialEq)]
 pub enum PrivateMode {
     /// Known private mode.
     Named(NamedPrivateMode),
-    /// Unidentified private mode.
-    Unidentified(u16),
+    /// Unknown private mode.
+    Unknown(u16),
 }
 
 impl PrivateMode {
     fn new(mode: u16) -> Self {
-        let named = match mode {
-            1 => NamedPrivateMode::CursorKeys,
-            3 => NamedPrivateMode::ColumnMode,
-            6 => NamedPrivateMode::Origin,
-            7 => NamedPrivateMode::LineWrap,
-            12 => NamedPrivateMode::BlinkingCursor,
-            25 => NamedPrivateMode::ShowCursor,
-            1000 => NamedPrivateMode::ReportMouseClicks,
-            1002 => NamedPrivateMode::ReportCellMouseMotion,
-            1003 => NamedPrivateMode::ReportAllMouseMotion,
-            1004 => NamedPrivateMode::ReportFocusInOut,
-            1005 => NamedPrivateMode::Utf8Mouse,
-            1006 => NamedPrivateMode::SgrMouse,
-            1007 => NamedPrivateMode::AlternateScroll,
-            1042 => NamedPrivateMode::UrgencyHints,
-            1049 => NamedPrivateMode::SwapScreenAndSetRestoreCursor,
-            2004 => NamedPrivateMode::BracketedPaste,
-            2026 => NamedPrivateMode::SyncUpdate,
-            _ => return Self::Unidentified(mode),
-        };
-
-        Self::Named(named)
+        match mode {
+            1 => Self::Named(NamedPrivateMode::CursorKeys),
+            3 => Self::Named(NamedPrivateMode::ColumnMode),
+            6 => Self::Named(NamedPrivateMode::Origin),
+            7 => Self::Named(NamedPrivateMode::LineWrap),
+            12 => Self::Named(NamedPrivateMode::BlinkingCursor),
+            25 => Self::Named(NamedPrivateMode::ShowCursor),
+            1000 => Self::Named(NamedPrivateMode::ReportMouseClicks),
+            1002 => Self::Named(NamedPrivateMode::ReportCellMouseMotion),
+            1003 => Self::Named(NamedPrivateMode::ReportAllMouseMotion),
+            1004 => Self::Named(NamedPrivateMode::ReportFocusInOut),
+            1005 => Self::Named(NamedPrivateMode::Utf8Mouse),
+            1006 => Self::Named(NamedPrivateMode::SgrMouse),
+            1007 => Self::Named(NamedPrivateMode::AlternateScroll),
+            1042 => Self::Named(NamedPrivateMode::UrgencyHints),
+            1049 => Self::Named(NamedPrivateMode::SwapScreenAndSetRestoreCursor),
+            2004 => Self::Named(NamedPrivateMode::BracketedPaste),
+            2026 => Self::Named(NamedPrivateMode::SyncUpdate),
+            _ => Self::Unknown(mode),
+        }
     }
 
     /// Get the raw value of the mode.
     pub fn raw(self) -> u16 {
         match self {
             Self::Named(named) => named as u16,
-            Self::Unidentified(mode) => mode,
+            Self::Unknown(mode) => mode,
         }
     }
 }
@@ -1518,7 +1514,7 @@ where
                     if is_private {
                         handler.set_private_mode(PrivateMode::new(param))
                     } else {
-                        handler.set_public_mode(PublicMode::new(param))
+                        handler.set_mode(Mode::new(param))
                     };
                 }
             },
@@ -1557,7 +1553,7 @@ where
                     if is_private {
                         handler.unset_private_mode(PrivateMode::new(param))
                     } else {
-                        handler.unset_public_mode(PublicMode::new(param))
+                        handler.unset_mode(Mode::new(param))
                     };
                 }
             },
