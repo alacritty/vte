@@ -585,11 +585,17 @@ pub trait Handler {
     /// Unset mode.
     fn unset_mode(&mut self, _mode: Mode) {}
 
+    /// DECRPM - report mode.
+    fn report_mode(&mut self, _mode: Mode) {}
+
     /// Set private mode.
     fn set_private_mode(&mut self, _mode: PrivateMode) {}
 
     /// Unset private mode.
     fn unset_private_mode(&mut self, _mode: PrivateMode) {}
+
+    /// DECRPM - report private mode.
+    fn report_private_mode(&mut self, _mode: PrivateMode) {}
 
     /// DECSTBM - Set the terminal scrolling region.
     fn set_scrolling_region(&mut self, _top: usize, _bottom: Option<usize>) {}
@@ -824,7 +830,7 @@ pub enum NamedMode {
 }
 
 /// Wrapper for the private DEC modes.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum PrivateMode {
     /// Known private mode.
     Named(NamedPrivateMode),
@@ -872,7 +878,7 @@ impl From<NamedPrivateMode> for PrivateMode {
 }
 
 /// Private DEC modes.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum NamedPrivateMode {
     CursorKeys = 1,
     /// Select 80 or 132 columns per page (DECCOLM).
@@ -1450,7 +1456,7 @@ where
             }};
         }
 
-        if has_ignored_intermediates || intermediates.len() > 1 {
+        if has_ignored_intermediates || intermediates.len() > 2 {
             unhandled!();
             return;
         }
@@ -1587,6 +1593,14 @@ where
             },
             ('n', []) => handler.device_status(next_param_or(0) as usize),
             ('P', []) => handler.delete_chars(next_param_or(1) as usize),
+            ('p', [b'$']) => {
+                let mode = next_param_or(0);
+                handler.report_mode(Mode::new(mode));
+            },
+            ('p', [b'?', b'$']) => {
+                let mode = next_param_or(0);
+                handler.report_private_mode(PrivateMode::new(mode));
+            },
             ('q', [b' ']) => {
                 // DECSCUSR (CSI Ps SP q) -- Set Cursor Style.
                 let cursor_style_id = next_param_or(0);
