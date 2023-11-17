@@ -27,7 +27,7 @@ use core::ops::Mul;
 use std::time::Instant;
 
 use cursor_icon::CursorIcon;
-use log::{debug, trace};
+use log::debug;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -119,7 +119,7 @@ impl Mul<f32> for Rgb {
             b: (f32::from(self.b) * rhs).clamp(0.0, 255.0) as u8,
         };
 
-        trace!("Scaling RGB by {} from {:?} to {:?}", rhs, self, result);
+        log::trace!("Scaling RGB by {} from {:?} to {:?}", rhs, self, result);
         result
     }
 }
@@ -327,6 +327,8 @@ impl<T: Timeout> Processor<T> {
             self.parser.advance(&mut performer, byte);
         }
 
+        // Report that update ended, since we could end due to timeout.
+        handler.unset_private_mode(NamedPrivateMode::SyncUpdate.into());
         // Resetting state after processing makes sure we don't interpret buffered sync escapes.
         self.state.sync_state.buffer.clear();
         self.state.sync_state.timeout.clear_timeout();
@@ -581,7 +583,13 @@ pub trait Handler {
     fn set_mode(&mut self, _mode: Mode) {}
 
     /// Unset mode.
-    fn unset_mode(&mut self, _: Mode) {}
+    fn unset_mode(&mut self, _mode: Mode) {}
+
+    /// Set private mode.
+    fn set_private_mode(&mut self, _mode: PrivateMode) {}
+
+    /// Unset private mode.
+    fn unset_private_mode(&mut self, _mode: PrivateMode) {}
 
     /// DECSTBM - Set the terminal scrolling region.
     fn set_scrolling_region(&mut self, _top: usize, _bottom: Option<usize>) {}
@@ -773,10 +781,99 @@ pub enum CursorShape {
     Hidden,
 }
 
-/// Terminal modes.
-#[derive(Debug, Eq, PartialEq)]
+/// Wrapper for the ANSI modes.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Mode {
-    /// ?1
+    /// Known ANSI mode.
+    Named(NamedMode),
+    /// Unidentified publc mode.
+    Unknown(u16),
+}
+
+impl Mode {
+    fn new(mode: u16) -> Self {
+        match mode {
+            4 => Self::Named(NamedMode::Insert),
+            20 => Self::Named(NamedMode::LineFeedNewLine),
+            _ => Self::Unknown(mode),
+        }
+    }
+
+    /// Get the raw value of the mode.
+    pub fn raw(self) -> u16 {
+        match self {
+            Self::Named(named) => named as u16,
+            Self::Unknown(mode) => mode,
+        }
+    }
+}
+
+impl From<NamedMode> for Mode {
+    fn from(value: NamedMode) -> Self {
+        Self::Named(value)
+    }
+}
+
+/// ANSI modes.
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum NamedMode {
+    /// IRM Insert Mode.
+    Insert = 4,
+    LineFeedNewLine = 20,
+}
+
+/// Wrapper for the private DEC modes.
+#[derive(Debug, Eq, PartialEq)]
+pub enum PrivateMode {
+    /// Known private mode.
+    Named(NamedPrivateMode),
+    /// Unknown private mode.
+    Unknown(u16),
+}
+
+impl PrivateMode {
+    fn new(mode: u16) -> Self {
+        match mode {
+            1 => Self::Named(NamedPrivateMode::CursorKeys),
+            3 => Self::Named(NamedPrivateMode::ColumnMode),
+            6 => Self::Named(NamedPrivateMode::Origin),
+            7 => Self::Named(NamedPrivateMode::LineWrap),
+            12 => Self::Named(NamedPrivateMode::BlinkingCursor),
+            25 => Self::Named(NamedPrivateMode::ShowCursor),
+            1000 => Self::Named(NamedPrivateMode::ReportMouseClicks),
+            1002 => Self::Named(NamedPrivateMode::ReportCellMouseMotion),
+            1003 => Self::Named(NamedPrivateMode::ReportAllMouseMotion),
+            1004 => Self::Named(NamedPrivateMode::ReportFocusInOut),
+            1005 => Self::Named(NamedPrivateMode::Utf8Mouse),
+            1006 => Self::Named(NamedPrivateMode::SgrMouse),
+            1007 => Self::Named(NamedPrivateMode::AlternateScroll),
+            1042 => Self::Named(NamedPrivateMode::UrgencyHints),
+            1049 => Self::Named(NamedPrivateMode::SwapScreenAndSetRestoreCursor),
+            2004 => Self::Named(NamedPrivateMode::BracketedPaste),
+            2026 => Self::Named(NamedPrivateMode::SyncUpdate),
+            _ => Self::Unknown(mode),
+        }
+    }
+
+    /// Get the raw value of the mode.
+    pub fn raw(self) -> u16 {
+        match self {
+            Self::Named(named) => named as u16,
+            Self::Unknown(mode) => mode,
+        }
+    }
+}
+
+impl From<NamedPrivateMode> for PrivateMode {
+    fn from(value: NamedPrivateMode) -> Self {
+        Self::Named(value)
+    }
+}
+
+/// Private DEC modes.
+#[derive(Debug, Eq, PartialEq)]
+pub enum NamedPrivateMode {
     CursorKeys = 1,
     /// Select 80 or 132 columns per page (DECCOLM).
     ///
@@ -790,88 +887,22 @@ pub enum Mode {
     /// * resets DECLRMM to unavailable
     /// * clears data from the status line (if set to host-writable)
     ColumnMode = 3,
-    /// IRM Insert Mode.
-    ///
-    /// NB should be part of non-private mode enum.
-    ///
-    /// * `CSI 4 h` change to insert mode
-    /// * `CSI 4 l` reset to replacement mode
-    Insert = 4,
-    /// ?6
     Origin = 6,
-    /// ?7
     LineWrap = 7,
-    /// ?12
     BlinkingCursor = 12,
-    /// 20
-    ///
-    /// NB This is actually a private mode. We should consider adding a second
-    /// enumeration for public/private modesets.
-    LineFeedNewLine = 20,
-    /// ?25
     ShowCursor = 25,
-    /// ?1000
     ReportMouseClicks = 1000,
-    /// ?1002
     ReportCellMouseMotion = 1002,
-    /// ?1003
     ReportAllMouseMotion = 1003,
-    /// ?1004
     ReportFocusInOut = 1004,
-    /// ?1005
     Utf8Mouse = 1005,
-    /// ?1006
     SgrMouse = 1006,
-    /// ?1007
     AlternateScroll = 1007,
-    /// ?1042
     UrgencyHints = 1042,
-    /// ?1049
     SwapScreenAndSetRestoreCursor = 1049,
-    /// ?2004
     BracketedPaste = 2004,
-}
-
-impl Mode {
-    /// Create mode from a primitive.
-    pub fn from_primitive(intermediate: Option<&u8>, num: u16) -> Option<Mode> {
-        let private = match intermediate {
-            Some(b'?') => true,
-            None => false,
-            _ => return None,
-        };
-
-        if private {
-            Some(match num {
-                1 => Mode::CursorKeys,
-                3 => Mode::ColumnMode,
-                6 => Mode::Origin,
-                7 => Mode::LineWrap,
-                12 => Mode::BlinkingCursor,
-                25 => Mode::ShowCursor,
-                1000 => Mode::ReportMouseClicks,
-                1002 => Mode::ReportCellMouseMotion,
-                1003 => Mode::ReportAllMouseMotion,
-                1004 => Mode::ReportFocusInOut,
-                1005 => Mode::Utf8Mouse,
-                1006 => Mode::SgrMouse,
-                1007 => Mode::AlternateScroll,
-                1042 => Mode::UrgencyHints,
-                1049 => Mode::SwapScreenAndSetRestoreCursor,
-                2004 => Mode::BracketedPaste,
-                _ => {
-                    trace!("[unimplemented] primitive mode: {}", num);
-                    return None;
-                },
-            })
-        } else {
-            Some(match num {
-                4 => Mode::Insert,
-                20 => Mode::LineFeedNewLine,
-                _ => return None,
-            })
-        }
-    }
+    /// The mode is handled automatically by [`Processor`].
+    SyncUpdate = 2026,
 }
 
 /// Mode for clearing line.
@@ -1471,19 +1502,19 @@ where
                 let x = next_param_or(1) as usize;
                 handler.goto(y - 1, x - 1);
             },
-            ('h', intermediates) => {
+            ('h', []) => {
                 for param in params_iter.map(|param| param[0]) {
-                    let intermediate = intermediates.first();
-
+                    handler.set_mode(Mode::new(param))
+                }
+            },
+            ('h', [b'?']) => {
+                for param in params_iter.map(|param| param[0]) {
                     // Handle sync updates opaquely.
-                    if intermediate == Some(&b'?') && param == 2026 {
+                    if param == NamedPrivateMode::SyncUpdate as u16 {
                         self.state.sync_state.timeout.set_timeout(SYNC_UPDATE_TIMEOUT);
                     }
 
-                    match Mode::from_primitive(intermediate, param) {
-                        Some(mode) => handler.set_mode(mode),
-                        None => unhandled!(),
-                    }
+                    handler.set_private_mode(PrivateMode::new(param))
                 }
             },
             ('I', []) => handler.move_forward_tabs(next_param_or(1)),
@@ -1515,12 +1546,14 @@ where
                 handler.clear_line(mode);
             },
             ('L', []) => handler.insert_blank_lines(next_param_or(1) as usize),
-            ('l', intermediates) => {
+            ('l', []) => {
                 for param in params_iter.map(|param| param[0]) {
-                    match Mode::from_primitive(intermediates.first(), param) {
-                        Some(mode) => handler.unset_mode(mode),
-                        None => unhandled!(),
-                    }
+                    handler.unset_mode(Mode::new(param))
+                }
+            },
+            ('l', [b'?']) => {
+                for param in params_iter.map(|param| param[0]) {
+                    handler.unset_private_mode(PrivateMode::new(param))
                 }
             },
             ('M', []) => handler.delete_lines(next_param_or(1) as usize),
