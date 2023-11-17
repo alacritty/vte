@@ -6,6 +6,7 @@ CHANGELOG
 - Reexport `cursor_icon` crate in `ansi`
 - Split-out private modes from `Mode` into `PrivateMode`
 - Add `unset_private_mode` and `set_private_mode`
+- Add `report_mode` and `report_private_mode` to handle DECRPM/DECRQM
 
 ## 0.12.0
 
