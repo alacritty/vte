@@ -1,7 +1,7 @@
 CHANGELOG
 =========
 
-## Unreleased
+## 0.13.0
 
 - Reexport `cursor_icon` crate in `ansi`
 - Split-out private modes from `Mode` into `PrivateMode`
