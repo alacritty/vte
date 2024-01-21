@@ -87,6 +87,10 @@ pub struct Parser<const OSC_RAW_BUF_SIZE: usize = MAX_OSC_RAW> {
     osc_raw: Vec<u8>,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
+    #[cfg(feature = "no_std")]
+    apc_raw: ArrayVec<u8, OSC_RAW_BUF_SIZE>,
+    #[cfg(not(feature = "no_std"))]
+    apc_raw: Vec<u8>,
     ignoring: bool,
     utf8_parser: utf8::Parser,
 }
@@ -187,6 +191,9 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                     State::OscString => {
                         self.perform_action(performer, Action::OscEnd, byte);
                     },
+                    State::ApcString => {
+                        self.perform_action(performer, Action::ApcEnd, byte);
+                    },
                     _ => (),
                 }
 
@@ -201,6 +208,9 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                     },
                     State::OscString => {
                         self.perform_action(performer, Action::OscStart, byte);
+                    },
+                    State::ApcString => {
+                        self.perform_action(performer, Action::ApcStart, byte);
                     },
                     _ => (),
                 }
@@ -229,6 +239,10 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             let params = &slices[..num_params] as *const [MaybeUninit<&[u8]>] as *const [&[u8]];
             performer.osc_dispatch(&*params, byte == 0x07);
         }
+    }
+
+    fn apc_dispatch<P: Perform>(&self, performer: &mut P) {
+        performer.apc_dispatch(&self.apc_raw);
     }
 
     #[inline]
@@ -364,9 +378,22 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             Action::BeginUtf8 => self.process_utf8(performer, byte),
             Action::Ignore => (),
             Action::None => (),
-            Action::ApcBegin => performer.apc_begin(),
-            Action::ApcEnd => performer.apc_end(),
-            Action::ApcPut => performer.apc_put(byte),
+            Action::ApcStart => {
+                self.apc_raw.clear();
+            },
+            Action::ApcEnd => {
+                self.apc_dispatch(performer);
+            },
+            Action::ApcPut => {
+                #[cfg(feature = "no_std")]
+                {
+                    if self.apc_raw.is_full() {
+                        return;
+                    }
+                }
+
+                self.apc_raw.push(byte);
+            },
         }
     }
 }
@@ -432,14 +459,9 @@ pub trait Perform {
     /// subsequent characters were ignored.
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
 
-    /// Called at the start of an APC (application program command)
-    fn apc_begin(&mut self) {}
-
-    /// Called at the end of an APC (application program command)
-    fn apc_end(&mut self) {}
-
-    /// A byte within an APC (application program command) byte-string
-    fn apc_put(&mut self, _byte: u8) {}
+    /// Called at the end of an APC (application program command), where
+    /// `bytes` is the content of the APC
+    fn apc_dispatch(&mut self, _bytes: &[u8]) {}
 }
 
 #[cfg(all(test, feature = "no_std"))]
@@ -471,6 +493,7 @@ mod tests {
         Esc(Vec<u8>, bool, u8),
         DcsHook(Vec<Vec<u16>>, Vec<u8>, bool, char),
         DcsPut(u8),
+        Apc(Vec<u8>),
         DcsUnhook,
     }
 
@@ -503,6 +526,10 @@ mod tests {
 
         fn unhook(&mut self) {
             self.dispatched.push(Sequence::DcsUnhook);
+        }
+
+        fn apc_dispatch(&mut self, bytes: &[u8]) {
+            self.dispatched.push(Sequence::Apc(bytes.to_vec()))
         }
     }
 
@@ -890,6 +917,35 @@ mod tests {
             assert_eq!(dispatcher.dispatched[1 + i], Sequence::DcsPut(*byte));
         }
         assert_eq!(dispatcher.dispatched[6], Sequence::DcsUnhook);
+    }
+
+    #[test]
+    fn parse_apc() {
+        const INPUT_1: &[u8] = b"\x1b_abc\x9c";
+        const INPUT_2: &[u8] = b"\x1b_abc\x1b\\";
+
+        // Test with ST terminator
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT_1 {
+            parser.advance(&mut dispatcher, *byte);
+        }
+        assert_eq!(dispatcher.dispatched, vec![Sequence::Apc(b"abc".to_vec()),]);
+
+        // Test with ESC \ terminator
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        for byte in INPUT_2 {
+            parser.advance(&mut dispatcher, *byte);
+        }
+        assert_eq!(
+            dispatcher.dispatched,
+            vec![Sequence::Apc(b"abc".to_vec()), Sequence::Esc(vec![], false, 92)]
+        )
     }
 
     #[test]

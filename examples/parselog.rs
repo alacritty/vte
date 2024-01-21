@@ -47,6 +47,10 @@ impl Perform for Log {
             intermediates, ignore, byte
         );
     }
+
+    fn apc_dispatch(&mut self, bytes: &[u8]) {
+        println!("[apc_dispatch] {:?}", bytes);
+    }
 }
 
 fn main() {

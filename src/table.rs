@@ -46,7 +46,7 @@ generate_state_changes!(state_changes, {
         0x50        => (DcsEntry, None),
         0x58        => (SosPmString, None),
         0x5e        => (SosPmString, None),
-        0x5f        => (ApcString, ApcBegin),
+        0x5f        => (ApcString, None),
     },
 
     EscapeIntermediate {
@@ -170,10 +170,11 @@ generate_state_changes!(state_changes, {
     }
 
     ApcString {
-        0x00..=0x17 => (ApcString, ApcPut),
-        0x19        => (ApcString, ApcPut),
-        0x1c..=0x1f => (ApcString, ApcPut),
-        0x20..=0x7f => (ApcString, ApcPut),
-        0x9c        => (Ground, ApcEnd),
+        0x00..=0x06 => (Anywhere, Ignore),
+        0x08..=0x17 => (Anywhere, Ignore),
+        0x19        => (Anywhere, Ignore),
+        0x1c..=0x1f => (Anywhere, Ignore),
+        0x20..=0xff => (Anywhere, ApcPut),
+        0x9c        => (Ground, None),
     },
 });
