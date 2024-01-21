@@ -25,8 +25,8 @@ pub fn generate_state_changes(item: proc_macro::TokenStream) -> proc_macro::Toke
     let assignments_stream = states_stream(&mut iter);
 
     quote!(
-        const fn #fn_name() -> [[u8; 256]; 16] {
-            let mut state_changes = [[0; 256]; 16];
+        const fn #fn_name() -> [[(State, Action); 256]; 17] {
+            let mut state_changes = [[(State::Anywhere, Action::None); 256]; 17];
 
             #assignments_stream
 
@@ -102,10 +102,9 @@ fn change_stream(iter: &mut Peekable<token_stream::IntoIter>, state: &TokenTree)
         // Create a new entry for every byte in the range
         for byte in start..=end {
             // TODO: Force adding `State::` and `Action::`?
-            // TODO: Should we really use `pack` here without import?
             tokens.extend(quote!(
                 state_changes[State::#state as usize][#byte] =
-                    pack(State::#target_state, Action::#target_action);
+                    (State::#target_state, Action::#target_action);
             ));
         }
     }

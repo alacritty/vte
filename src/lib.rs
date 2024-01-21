@@ -48,7 +48,7 @@ mod table;
 pub mod ansi;
 pub use params::{Params, ParamsIter};
 
-use definitions::{unpack, Action, State};
+use definitions::{Action, State};
 
 const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_PARAMS: usize = 16;
@@ -138,12 +138,12 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         // for current state.
         let mut change = table::STATE_CHANGES[State::Anywhere as usize][byte as usize];
 
-        if change == 0 {
+        if change == (State::Anywhere, Action::None) {
             change = table::STATE_CHANGES[self.state as usize][byte as usize];
         }
 
         // Unpack into a state and action
-        let (state, action) = unpack(change);
+        let (state, action) = change;
 
         self.perform_state_change(performer, state, action, byte);
     }
@@ -364,6 +364,9 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             Action::BeginUtf8 => self.process_utf8(performer, byte),
             Action::Ignore => (),
             Action::None => (),
+            Action::ApcBegin => performer.apc_begin(),
+            Action::ApcEnd => performer.apc_end(),
+            Action::ApcPut => performer.apc_put(byte),
         }
     }
 }
@@ -428,6 +431,15 @@ pub trait Perform {
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+
+    /// Called at the start of an APC (application program command)
+    fn apc_begin(&mut self) {}
+
+    /// Called at the end of an APC (application program command)
+    fn apc_end(&mut self) {}
+
+    /// A byte within an APC (application program command) byte-string
+    fn apc_put(&mut self, _byte: u8) {}
 }
 
 #[cfg(all(test, feature = "no_std"))]
