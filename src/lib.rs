@@ -73,7 +73,8 @@ impl<'a, P: Perform> utf8::Receiver for VtUtf8Receiver<'a, P> {
 /// [`Perform`]: trait.Perform.html
 ///
 /// Generic over the value for the size of the raw Operating System Command
-/// buffer. Only used when the `no_std` feature is enabled.
+/// buffer. Only used when the `no_std` feature is enabled. This buffer is
+/// also used for APC (Application Program Commands.)
 #[derive(Default)]
 pub struct Parser<const OSC_RAW_BUF_SIZE: usize = MAX_OSC_RAW> {
     state: State,
@@ -87,10 +88,6 @@ pub struct Parser<const OSC_RAW_BUF_SIZE: usize = MAX_OSC_RAW> {
     osc_raw: Vec<u8>,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
-    #[cfg(feature = "no_std")]
-    apc_raw: ArrayVec<u8, OSC_RAW_BUF_SIZE>,
-    #[cfg(not(feature = "no_std"))]
-    apc_raw: Vec<u8>,
     ignoring: bool,
     utf8_parser: utf8::Parser,
 }
@@ -242,7 +239,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     }
 
     fn apc_dispatch<P: Perform>(&self, performer: &mut P) {
-        performer.apc_dispatch(&self.apc_raw);
+        performer.apc_dispatch(&self.osc_raw);
     }
 
     #[inline]
@@ -379,7 +376,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             Action::Ignore => (),
             Action::None => (),
             Action::ApcStart => {
-                self.apc_raw.clear();
+                self.osc_raw.clear();
             },
             Action::ApcEnd => {
                 self.apc_dispatch(performer);
@@ -387,12 +384,12 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             Action::ApcPut => {
                 #[cfg(feature = "no_std")]
                 {
-                    if self.apc_raw.is_full() {
+                    if self.osc_raw.is_full() {
                         return;
                     }
                 }
 
-                self.apc_raw.push(byte);
+                self.osc_raw.push(byte);
             },
         }
     }
