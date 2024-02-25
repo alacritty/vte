@@ -268,7 +268,6 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.osc_num_params = 0;
             },
             Action::StringPut => {
-                eprintln!("{:x} {:x}: {:x}", self.str_start, self.str_start % 64, byte);
                 #[cfg(feature = "no_std")]
                 {
                     if self.osc_raw.is_full() {
@@ -304,7 +303,6 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 }
             },
             Action::StringEnd => {
-                eprintln!("str end");
                 let param_idx = self.osc_num_params;
                 let idx = self.osc_raw.len();
 
