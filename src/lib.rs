@@ -952,10 +952,10 @@ mod tests {
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
-        assert_eq!(
-            dispatcher.dispatched,
-            vec![Sequence::Apc(b"abc".to_vec()), Sequence::Esc(vec![], false, 92)]
-        )
+        assert_eq!(dispatcher.dispatched, vec![
+            Sequence::Apc(b"abc".to_vec()),
+            Sequence::Esc(vec![], false, 92)
+        ])
     }
     #[test]
     fn parse_pm() {
@@ -969,10 +969,10 @@ mod tests {
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
-        assert_eq!(
-            dispatcher.dispatched,
-            vec![Sequence::Pm(b"abc".to_vec()), Sequence::Esc(vec![], false, 92)]
-        )
+        assert_eq!(dispatcher.dispatched, vec![
+            Sequence::Pm(b"abc".to_vec()),
+            Sequence::Esc(vec![], false, 92)
+        ])
     }
 
     #[test]
@@ -987,10 +987,10 @@ mod tests {
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
-        assert_eq!(
-            dispatcher.dispatched,
-            vec![Sequence::Sos(b"abc".to_vec()), Sequence::Esc(vec![], false, 92)]
-        )
+        assert_eq!(dispatcher.dispatched, vec![
+            Sequence::Sos(b"abc".to_vec()),
+            Sequence::Esc(vec![], false, 92)
+        ])
     }
 
     #[test]
