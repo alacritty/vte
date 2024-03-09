@@ -463,15 +463,15 @@ pub trait Perform {
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
 
     /// Called at the end of an APC (application program command), where
-    /// `bytes` is the content of the APC
+    /// `bytes` is the content of the APC.
     fn apc_dispatch(&mut self, _bytes: &[u8]) {}
 
     /// Called at the end of an SOS (start of string), where
-    /// `bytes` is the content of the SOS
+    /// `bytes` is the content of the SOS.
     fn sos_dispatch(&mut self, _bytes: &[u8]) {}
 
     /// Called at the end of a PM (privacy message), where
-    /// `bytes` is the content of the PM
+    /// `bytes` is the content of the PM.
     fn pm_dispatch(&mut self, _bytes: &[u8]) {}
 }
 
@@ -944,7 +944,7 @@ mod tests {
     fn parse_apc() {
         const INPUT: &[u8] = b"\x1b_abc\x1b\\";
 
-        // Test with ESC \ terminator
+        // Test with ESC \ terminator.
 
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
@@ -952,16 +952,16 @@ mod tests {
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
-        assert_eq!(dispatcher.dispatched, vec![
-            Sequence::Apc(b"abc".to_vec()),
-            Sequence::Esc(vec![], false, 92)
-        ])
+        assert_eq!(
+            dispatcher.dispatched,
+            vec![Sequence::Apc(b"abc".to_vec()), Sequence::Esc(vec![], false, 92)]
+        )
     }
     #[test]
     fn parse_pm() {
         const INPUT: &[u8] = b"\x1b^abc\x1b\\";
 
-        // Test with ESC \ terminator
+        // Test with ESC \ terminator.
 
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
@@ -969,17 +969,17 @@ mod tests {
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
-        assert_eq!(dispatcher.dispatched, vec![
-            Sequence::Pm(b"abc".to_vec()),
-            Sequence::Esc(vec![], false, 92)
-        ])
+        assert_eq!(
+            dispatcher.dispatched,
+            vec![Sequence::Pm(b"abc".to_vec()), Sequence::Esc(vec![], false, 92)]
+        )
     }
 
     #[test]
     fn parse_sos() {
         const INPUT: &[u8] = b"\x1bXabc\x1b\\";
 
-        // Test with ESC \ terminator
+        // Test with ESC \ terminator.
 
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
@@ -987,10 +987,10 @@ mod tests {
         for byte in INPUT {
             parser.advance(&mut dispatcher, *byte);
         }
-        assert_eq!(dispatcher.dispatched, vec![
-            Sequence::Sos(b"abc".to_vec()),
-            Sequence::Esc(vec![], false, 92)
-        ])
+        assert_eq!(
+            dispatcher.dispatched,
+            vec![Sequence::Sos(b"abc".to_vec()), Sequence::Esc(vec![], false, 92)]
+        )
     }
 
     #[test]
