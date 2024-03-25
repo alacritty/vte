@@ -677,6 +677,9 @@ pub trait Handler {
     ///
     /// The output is of form `CSI > 4 ; mode m`.
     fn report_modify_other_keys(&mut self) {}
+
+    // Set SCP control.
+    fn set_scp(&mut self, _char_path: ScpCharPath, _update_mode: ScpUpdateMode) {}
 }
 
 bitflags! {
@@ -1195,6 +1198,41 @@ impl StandardCharset {
     }
 }
 
+/// SCP control's first parameter which determines character path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScpCharPath {
+    /// SCP's first parameter value of 0 (the default). Behavior is implementation defined.
+    ///
+    /// This value is defined by Terminals Working Group BiDi draft proposal.
+    Default,
+    /// SCP's first parameter value of 1 which sets character path to LEFT-TO-RIGHT.
+    LTR,
+    /// SCP's first parameter value of 2 which sets character path to RIGHT-TO-LEFT.
+    RTL,
+    /// SCP's first parameter with an unknown value.
+    Unknown(u16),
+}
+
+/// SCP control's second parameter which determines update mode/direction between components.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScpUpdateMode {
+    /// SCP's second parameter value of 0 (the default). Implementation dependant update.
+    ///
+    /// Note that Terminals Working Group BiDi draft proposal only supports this mode as it only
+    /// operates in the data component.
+    ImplementationDependant,
+    /// SCP's second parameter value of 1.
+    ///
+    /// Reflect data component changes in the presentation component.
+    DataToPresentation,
+    /// SCP's second parameter value of 2.
+    ///
+    /// Reflect presentation component changes in the data component.
+    PresentationToData,
+    /// SCP's second parameter with an unknown value.
+    Unknown(u16),
+}
+
 impl<'a, H, T> crate::Perform for Performer<'a, H, T>
 where
     H: Handler + 'a,
@@ -1550,6 +1588,24 @@ where
                 };
 
                 handler.clear_line(mode);
+            },
+            ('k', [b' ']) => {
+                // SCP control.
+                let char_path = match next_param_or(0) {
+                    0 => ScpCharPath::Default,
+                    1 => ScpCharPath::LTR,
+                    2 => ScpCharPath::RTL,
+                    n => ScpCharPath::Unknown(n),
+                };
+
+                let update_mode = match next_param_or(0) {
+                    0 => ScpUpdateMode::ImplementationDependant,
+                    1 => ScpUpdateMode::DataToPresentation,
+                    2 => ScpUpdateMode::PresentationToData,
+                    n => ScpUpdateMode::Unknown(n),
+                };
+
+                handler.set_scp(char_path, update_mode);
             },
             ('L', []) => handler.insert_blank_lines(next_param_or(1) as usize),
             ('l', []) => {
