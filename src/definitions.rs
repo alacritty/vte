@@ -19,7 +19,7 @@ pub enum State {
     #[default]
     Ground = 12,
     OscString = 13,
-    SosPmApcString = 14,
+    Null = 14,
     Utf8 = 15,
 }
 
@@ -35,9 +35,9 @@ pub enum Action {
     Execute = 5,
     Hook = 6,
     Ignore = 7,
-    OscEnd = 8,
-    OscPut = 9,
-    OscStart = 10,
+    StringEnd = 8,
+    StringPut = 9,
+    StringStart = 10,
     Param = 11,
     Print = 12,
     Put = 13,
@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn unpack_state_action() {
         match unpack(0xee) {
-            (State::SosPmApcString, Action::Unhook) => (),
+            (State::Null, Action::Unhook) => (),
             _ => panic!("unpack failed"),
         }
 
@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn pack_state_action() {
         match unpack(0xee) {
-            (State::SosPmApcString, Action::Unhook) => (),
+            (State::Null, Action::Unhook) => (),
             _ => panic!("unpack failed"),
         }
 

@@ -44,9 +44,9 @@ generate_state_changes!(state_changes, {
         0x5b        => (CsiEntry, None),
         0x5d        => (OscString, None),
         0x50        => (DcsEntry, None),
-        0x58        => (SosPmApcString, None),
-        0x5e        => (SosPmApcString, None),
-        0x5f        => (SosPmApcString, None),
+        0x58        => (OscString, None),
+        0x5e        => (OscString, None),
+        0x5f        => (OscString, None),
     },
 
     EscapeIntermediate {
@@ -152,12 +152,8 @@ generate_state_changes!(state_changes, {
         0x9c        => (Ground, None),
     },
 
-    SosPmApcString {
-        0x00..=0x17 => (Anywhere, Ignore),
-        0x19        => (Anywhere, Ignore),
-        0x1c..=0x1f => (Anywhere, Ignore),
-        0x20..=0x7f => (Anywhere, Ignore),
-        0x9c        => (Ground, None),
+    Null {
+        0x00..=0xFF => (Anywhere, Ignore),
     },
 
     OscString {
@@ -166,6 +162,6 @@ generate_state_changes!(state_changes, {
         0x08..=0x17 => (Anywhere, Ignore),
         0x19        => (Anywhere, Ignore),
         0x1c..=0x1f => (Anywhere, Ignore),
-        0x20..=0xff => (Anywhere, OscPut),
+        0x20..=0xff => (Anywhere, StringPut),
     }
 });
