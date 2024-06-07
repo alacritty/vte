@@ -6,7 +6,7 @@ repository = "https://github.com/alacritty/vte"
 keywords = ["utf8", "parse", "table"]
 categories = ["parsing", "no-std"]
 license = "Apache-2.0 OR MIT"
-version = "0.2.1"
+version = "0.2.2"
 name = "utf8parse"
 edition = "2018"
 
