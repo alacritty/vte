@@ -30,4 +30,4 @@ no_std = ["arrayvec"]
 serde = ["dep:serde"]
 
 [workspace]
-members = ["utf8parse", "vte_generate_state_changes"]
+members = ["utf8parse", "vte_generate_state_changes", "utf8parse/fuzz"]
