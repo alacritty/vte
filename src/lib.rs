@@ -56,7 +56,7 @@ const MAX_OSC_RAW: usize = 1024;
 
 struct VtUtf8Receiver<'a, P: Perform>(&'a mut P, &'a mut State);
 
-impl<'a, P: Perform> utf8::Receiver for VtUtf8Receiver<'a, P> {
+impl<P: Perform> utf8::Receiver for VtUtf8Receiver<'_, P> {
     fn codepoint(&mut self, c: char) {
         self.0.print(c);
         *self.1 = State::Ground;
@@ -602,7 +602,7 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 1);
         match &dispatcher.dispatched[0] {
             Sequence::Osc(params, _) => {
-                assert_eq!(params[0], &[b'2']);
+                assert_eq!(params[0], b"2");
                 assert_eq!(params[1], &INPUT[5..(INPUT.len() - 1)]);
             },
             _ => panic!("expected osc sequence"),
@@ -632,7 +632,7 @@ mod tests {
     fn exceed_max_buffer_size() {
         static NUM_BYTES: usize = MAX_OSC_RAW + 100;
         static INPUT_START: &[u8] = &[0x1b, b']', b'5', b'2', b';', b's'];
-        static INPUT_END: &[u8] = &[b'\x07'];
+        static INPUT_END: &[u8] = b"\x07";
 
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
@@ -764,7 +764,7 @@ mod tests {
 
         assert_eq!(dispatcher.dispatched.len(), 1);
         match &dispatcher.dispatched[0] {
-            Sequence::Csi(params, ..) => assert_eq!(params, &[[std::u16::MAX as u16]]),
+            Sequence::Csi(params, ..) => assert_eq!(params, &[[u16::MAX]]),
             _ => panic!("expected csi sequence"),
         }
     }
@@ -782,7 +782,7 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 1);
         match &dispatcher.dispatched[0] {
             Sequence::Csi(params, intermediates, ignore, _) => {
-                assert_eq!(intermediates, &[b'?']);
+                assert_eq!(intermediates, b"?");
                 assert_eq!(params, &[[1049]]);
                 assert!(!ignore);
             },
@@ -846,7 +846,7 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 3);
         match &dispatcher.dispatched[0] {
             Sequence::DcsHook(params, intermediates, ignore, _) => {
-                assert_eq!(intermediates, &[b'$']);
+                assert_eq!(intermediates, b"$");
                 assert_eq!(params, &[[1]]);
                 assert!(!ignore);
             },
@@ -892,7 +892,7 @@ mod tests {
 
         assert_eq!(dispatcher.dispatched.len(), 6);
         match &dispatcher.dispatched[5] {
-            Sequence::Esc(intermediates, ..) => assert_eq!(intermediates, &[b'+']),
+            Sequence::Esc(intermediates, ..) => assert_eq!(intermediates, b"+"),
             _ => panic!("expected esc sequence"),
         }
     }
@@ -910,7 +910,7 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 1);
         match &dispatcher.dispatched[0] {
             Sequence::Esc(intermediates, ignore, byte) => {
-                assert_eq!(intermediates, &[b'(']);
+                assert_eq!(intermediates, b"(");
                 assert_eq!(*byte, b'A');
                 assert!(!ignore);
             },
@@ -954,7 +954,7 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 1);
         match &dispatcher.dispatched[0] {
             Sequence::Csi(params, intermediates, ignore, _) => {
-                assert_eq!(intermediates, &[b'?']);
+                assert_eq!(intermediates, b"?");
                 assert_eq!(params, &[[1049]]);
                 assert!(!ignore);
             },
