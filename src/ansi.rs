@@ -11,30 +11,26 @@ extern crate alloc;
 use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use bitflags::bitflags;
-
 use core::convert::TryFrom;
 use core::fmt::{self, Display, Formatter, Write};
+#[cfg(not(feature = "no_std"))]
+use core::ops::Mul;
 use core::ops::{Add, Sub};
 use core::str::FromStr;
 use core::time::Duration;
-use core::{iter, str};
-
-#[cfg(not(feature = "no_std"))]
-use core::ops::Mul;
-
+use core::{iter, mem, str};
 #[cfg(not(feature = "no_std"))]
 use std::time::Instant;
 
+use bitflags::bitflags;
+#[doc(inline)]
+pub use cursor_icon;
 use cursor_icon::CursorIcon;
 use log::debug;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{Params, ParamsIter};
-
-#[doc(inline)]
-pub use cursor_icon;
 
 /// Maximum time before a synchronized update is aborted.
 const SYNC_UPDATE_TIMEOUT: Duration = Duration::from_millis(150);
@@ -168,9 +164,9 @@ impl FromStr for Rgb {
 
         match u32::from_str_radix(chars, 16) {
             Ok(mut color) => {
-                let b = (color & 0xff) as u8;
+                let b = (color & 0xFF) as u8;
                 color >>= 8;
-                let g = (color & 0xff) as u8;
+                let g = (color & 0xFF) as u8;
                 color >>= 8;
                 let r = color as u8;
                 Ok(Rgb { r, g, b })
@@ -237,14 +233,8 @@ fn parse_number(input: &[u8]) -> Option<u8> {
     let mut num: u8 = 0;
     for c in input {
         let c = *c as char;
-        if let Some(digit) = c.to_digit(10) {
-            num = match num.checked_mul(10).and_then(|v| v.checked_add(digit as u8)) {
-                Some(v) => v,
-                None => return None,
-            }
-        } else {
-            return None;
-        }
+        let digit = c.to_digit(10)?;
+        num = num.checked_mul(10).and_then(|v| v.checked_add(digit as u8))?;
     }
     Some(num)
 }
@@ -274,7 +264,8 @@ impl<T: Timeout> Default for SyncState<T> {
     }
 }
 
-/// The processor wraps a `crate::Parser` to ultimately call methods on a Handler.
+/// The processor wraps a `crate::Parser` to ultimately call methods on a
+/// Handler.
 #[cfg(not(feature = "no_std"))]
 #[derive(Default)]
 pub struct Processor<T: Timeout = StdSyncHandler> {
@@ -282,7 +273,8 @@ pub struct Processor<T: Timeout = StdSyncHandler> {
     parser: crate::Parser,
 }
 
-/// The processor wraps a `crate::Parser` to ultimately call methods on a Handler.
+/// The processor wraps a `crate::Parser` to ultimately call methods on a
+/// Handler.
 #[cfg(feature = "no_std")]
 #[derive(Default)]
 pub struct Processor<T: Timeout> {
@@ -303,15 +295,15 @@ impl<T: Timeout> Processor<T> {
 
     /// Process a new byte from the PTY.
     #[inline]
-    pub fn advance<H>(&mut self, handler: &mut H, byte: u8)
+    pub fn advance<H>(&mut self, handler: &mut H, bytes: &[u8])
     where
         H: Handler,
     {
         if self.state.sync_state.timeout.pending_timeout() {
-            self.advance_sync(handler, byte);
+            self.advance_sync(handler, bytes);
         } else {
             let mut performer = Performer::new(&mut self.state, handler);
-            self.parser.advance(&mut performer, byte);
+            self.parser.advance(&mut performer, bytes);
         }
     }
 
@@ -321,15 +313,15 @@ impl<T: Timeout> Processor<T> {
         H: Handler,
     {
         // Process all synchronized bytes.
-        for i in 0..self.state.sync_state.buffer.len() {
-            let byte = self.state.sync_state.buffer[i];
-            let mut performer = Performer::new(&mut self.state, handler);
-            self.parser.advance(&mut performer, byte);
-        }
+        let buffer = mem::take(&mut self.state.sync_state.buffer);
+        let mut performer = Performer::new(&mut self.state, handler);
+        self.parser.advance(&mut performer, &buffer);
+        self.state.sync_state.buffer = buffer;
 
         // Report that update ended, since we could end due to timeout.
         handler.unset_private_mode(NamedPrivateMode::SyncUpdate.into());
-        // Resetting state after processing makes sure we don't interpret buffered sync escapes.
+        // Resetting state after processing makes sure we don't interpret buffered sync
+        // escapes.
         self.state.sync_state.buffer.clear();
         self.state.sync_state.timeout.clear_timeout();
     }
@@ -342,35 +334,50 @@ impl<T: Timeout> Processor<T> {
 
     /// Process a new byte during a synchronized update.
     #[cold]
-    fn advance_sync<H>(&mut self, handler: &mut H, byte: u8)
+    fn advance_sync<H>(&mut self, handler: &mut H, bytes: &[u8])
     where
         H: Handler,
     {
-        self.state.sync_state.buffer.push(byte);
+        // Advance sync parser or stop sync if we'd exceed the maximum buffer size.
+        if self.state.sync_state.buffer.len() + bytes.len() >= SYNC_BUFFER_SIZE - 1 {
+            // Terminate the synchronized update.
+            self.stop_sync(handler);
 
-        // Handle sync CSI escape sequences.
-        self.advance_sync_csi(handler);
+            // Just parse the bytes normally.
+            let mut performer = Performer::new(&mut self.state, handler);
+            self.parser.advance(&mut performer, bytes);
+        } else {
+            self.state.sync_state.buffer.extend(bytes);
+            self.advance_sync_csi(handler, bytes.len());
+        }
     }
 
     /// Handle BSU/ESU CSI sequences during synchronized update.
-    fn advance_sync_csi<H>(&mut self, handler: &mut H)
+    fn advance_sync_csi<H>(&mut self, handler: &mut H, new_bytes: usize)
     where
         H: Handler,
     {
-        // Get the last few bytes for comparison.
-        let len = self.state.sync_state.buffer.len();
-        let offset = len.saturating_sub(SYNC_ESCAPE_LEN);
-        let end = &self.state.sync_state.buffer[offset..];
+        // Get constraints within which a new escape character might be relevant.
+        let buffer_len = self.state.sync_state.buffer.len();
+        let start_offset = (buffer_len - new_bytes).saturating_sub(SYNC_ESCAPE_LEN - 1);
+        let end_offset = buffer_len.saturating_sub(SYNC_ESCAPE_LEN - 1);
+        let search_buffer = &self.state.sync_state.buffer[start_offset..end_offset];
 
+        // Search for termination/extension escapes in the added bytes.
+        //
         // NOTE: It is technically legal to specify multiple private modes in the same
         // escape, but we only allow EXACTLY `\e[?2026h`/`\e[?2026l` to keep the parser
-        // reasonable.
-        //
-        // Check for extension/termination of the synchronized update.
-        if end == BSU_CSI {
-            self.state.sync_state.timeout.set_timeout(SYNC_UPDATE_TIMEOUT);
-        } else if end == ESU_CSI || len >= SYNC_BUFFER_SIZE - 1 {
-            self.stop_sync(handler);
+        // more simple.
+        for index in memchr::memchr_iter(0x1B, search_buffer) {
+            let offset = start_offset + index;
+            let escape = &self.state.sync_state.buffer[offset..offset + SYNC_ESCAPE_LEN];
+
+            if escape == BSU_CSI {
+                self.state.sync_state.timeout.set_timeout(SYNC_UPDATE_TIMEOUT);
+            } else if escape == ESU_CSI {
+                self.stop_sync(handler);
+                break;
+            }
         }
     }
 }
@@ -710,13 +717,14 @@ bitflags! {
 ///
 /// This only applies to keys corresponding to ascii characters.
 ///
-/// For the details on how to implement the mode handling correctly, consult [`XTerm's
-/// implementation`] and the [`output`] of XTerm's provided [`perl script`]. Some libraries and
-/// implementations also use the [`fixterms`] definition of the `CSI u`.
+/// For the details on how to implement the mode handling correctly, consult
+/// [`XTerm's implementation`] and the [`output`] of XTerm's provided [`perl
+/// script`]. Some libraries and implementations also use the [`fixterms`]
+/// definition of the `CSI u`.
 ///
-/// The end escape sequence has a `CSI char; modifiers u` form while the original
-/// `CSI 27 ; modifier ; char ~`. The clients should prefer the `CSI u`, since it has
-/// more adoption.
+/// The end escape sequence has a `CSI char; modifiers u` form while the
+/// original `CSI 27 ; modifier ; char ~`. The clients should prefer the `CSI
+/// u`, since it has more adoption.
 ///
 /// [`XTerm's implementation`]: https://invisible-island.net/xterm/modified-keys.html
 /// [`perl script`]: https://github.com/ThomasDickey/xterm-snapshots/blob/master/vttests/modify-keys.pl
@@ -727,12 +735,14 @@ bitflags! {
 pub enum ModifyOtherKeys {
     /// Reset the state.
     Reset,
-    /// Enables this feature except for keys with well-known behavior, e.g., Tab, Backspace and
-    /// some special control character cases which are built into the X11 library (e.g.,
-    /// Control-Space to make a NUL, or Control-3 to make an Escape character).
+    /// Enables this feature except for keys with well-known behavior, e.g.,
+    /// Tab, Backspace and some special control character cases which are
+    /// built into the X11 library (e.g., Control-Space to make a NUL, or
+    /// Control-3 to make an Escape character).
     ///
     /// Escape sequences shouldn't be emitted under the following circumstances:
-    /// - When the key is in range of `[64;127]` and the modifier is either Control or Shift
+    /// - When the key is in range of `[64;127]` and the modifier is either
+    ///   Control or Shift
     /// - When the key combination is a known control combination alias
     ///
     /// For more details, consult the [`example`] for the suggested translation.
@@ -740,9 +750,10 @@ pub enum ModifyOtherKeys {
     /// [`example`]: https://github.com/alacritty/vte/blob/master/doc/modifyOtherKeys-example.txt
     EnableExceptWellDefined,
     /// Enables this feature for all keys including the exceptions of
-    /// [`Self::EnableExceptWellDefined`].  XTerm still ignores the special cases built into the
-    /// X11 library. Any shifted (modified) ordinary key send an escape sequence. The Alt- and
-    /// Meta- modifiers cause XTerm to send escape sequences.
+    /// [`Self::EnableExceptWellDefined`].  XTerm still ignores the special
+    /// cases built into the X11 library. Any shifted (modified) ordinary
+    /// key send an escape sequence. The Alt- and Meta- modifiers cause
+    /// XTerm to send escape sequences.
     ///
     /// For more details, consult the [`example`] for the suggested translation.
     ///
@@ -1203,16 +1214,20 @@ impl StandardCharset {
 pub enum ScpCharPath {
     /// SCP's first parameter value of 0. Behavior is implementation defined.
     Default,
-    /// SCP's first parameter value of 1 which sets character path to LEFT-TO-RIGHT.
+    /// SCP's first parameter value of 1 which sets character path to
+    /// LEFT-TO-RIGHT.
     LTR,
-    /// SCP's first parameter value of 2 which sets character path to RIGHT-TO-LEFT.
+    /// SCP's first parameter value of 2 which sets character path to
+    /// RIGHT-TO-LEFT.
     RTL,
 }
 
-/// SCP control's second parameter which determines update mode/direction between components.
+/// SCP control's second parameter which determines update mode/direction
+/// between components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScpUpdateMode {
-    /// SCP's second parameter value of 0 (the default). Implementation dependant update.
+    /// SCP's second parameter value of 0 (the default). Implementation
+    /// dependant update.
     ImplementationDependant,
     /// SCP's second parameter value of 1.
     ///
@@ -1351,8 +1366,8 @@ where
                     return;
                 }
 
-                // Link parameters are in format of `key1=value1:key2=value2`. Currently only key
-                // `id` is defined.
+                // Link parameters are in format of `key1=value1:key2=value2`. Currently only
+                // key `id` is defined.
                 let id = link_params
                     .split(|&b| b == b':')
                     .find_map(|kv| kv.strip_prefix(b"id="))
@@ -1943,7 +1958,7 @@ pub mod C0 {
     /// Unit Separator.
     pub const US: u8 = 0x1F;
     /// Delete, should be ignored by terminal.
-    pub const DEL: u8 = 0x7f;
+    pub const DEL: u8 = 0x7F;
 }
 
 // Tests for parsing escape sequences.
@@ -1954,22 +1969,24 @@ mod tests {
     use super::*;
 
     #[derive(Default)]
-    pub struct TestSyncHandler;
+    pub struct TestSyncHandler {
+        is_sync: usize,
+    }
 
     impl Timeout for TestSyncHandler {
         #[inline]
         fn set_timeout(&mut self, _: Duration) {
-            unreachable!()
+            self.is_sync += 1;
         }
 
         #[inline]
         fn clear_timeout(&mut self) {
-            unreachable!()
+            self.is_sync = 0;
         }
 
         #[inline]
         fn pending_timeout(&self) -> bool {
-            false
+            self.is_sync != 0
         }
     }
 
@@ -2028,72 +2045,60 @@ mod tests {
 
     #[test]
     fn parse_control_attribute() {
-        static BYTES: &[u8] = &[0x1b, b'[', b'1', b'm'];
+        static BYTES: &[u8] = &[0x1B, b'[', b'1', b'm'];
 
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in BYTES {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, BYTES);
 
         assert_eq!(handler.attr, Some(Attr::Bold));
     }
 
     #[test]
     fn parse_terminal_identity_csi() {
-        let bytes: &[u8] = &[0x1b, b'[', b'1', b'c'];
+        let bytes: &[u8] = &[0x1B, b'[', b'1', b'c'];
 
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in bytes {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, bytes);
 
         assert!(!handler.identity_reported);
         handler.reset_state();
 
-        let bytes: &[u8] = &[0x1b, b'[', b'c'];
+        let bytes: &[u8] = &[0x1B, b'[', b'c'];
 
-        for byte in bytes {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, bytes);
 
         assert!(handler.identity_reported);
         handler.reset_state();
 
-        let bytes: &[u8] = &[0x1b, b'[', b'0', b'c'];
+        let bytes: &[u8] = &[0x1B, b'[', b'0', b'c'];
 
-        for byte in bytes {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, bytes);
 
         assert!(handler.identity_reported);
     }
 
     #[test]
     fn parse_terminal_identity_esc() {
-        let bytes: &[u8] = &[0x1b, b'Z'];
+        let bytes: &[u8] = &[0x1B, b'Z'];
 
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in bytes {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, bytes);
 
         assert!(handler.identity_reported);
         handler.reset_state();
 
-        let bytes: &[u8] = &[0x1b, b'#', b'Z'];
+        let bytes: &[u8] = &[0x1B, b'#', b'Z'];
 
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in bytes {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, bytes);
 
         assert!(!handler.identity_reported);
         handler.reset_state();
@@ -2102,16 +2107,14 @@ mod tests {
     #[test]
     fn parse_truecolor_attr() {
         static BYTES: &[u8] = &[
-            0x1b, b'[', b'3', b'8', b';', b'2', b';', b'1', b'2', b'8', b';', b'6', b'6', b';',
+            0x1B, b'[', b'3', b'8', b';', b'2', b';', b'1', b'2', b'8', b';', b'6', b'6', b';',
             b'2', b'5', b'5', b'm',
         ];
 
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in BYTES {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, BYTES);
 
         let spec = Rgb { r: 128, g: 66, b: 255 };
 
@@ -2122,38 +2125,34 @@ mod tests {
     #[test]
     fn parse_zsh_startup() {
         static BYTES: &[u8] = &[
-            0x1b, b'[', b'1', b'm', 0x1b, b'[', b'7', b'm', b'%', 0x1b, b'[', b'2', b'7', b'm',
-            0x1b, b'[', b'1', b'm', 0x1b, b'[', b'0', b'm', b' ', b' ', b' ', b' ', b' ', b' ',
+            0x1B, b'[', b'1', b'm', 0x1B, b'[', b'7', b'm', b'%', 0x1B, b'[', b'2', b'7', b'm',
+            0x1B, b'[', b'1', b'm', 0x1B, b'[', b'0', b'm', b' ', b' ', b' ', b' ', b' ', b' ',
             b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ',
             b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ',
             b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ',
             b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ',
             b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ',
-            b' ', b' ', b' ', b'\r', b' ', b'\r', b'\r', 0x1b, b'[', b'0', b'm', 0x1b, b'[', b'2',
-            b'7', b'm', 0x1b, b'[', b'2', b'4', b'm', 0x1b, b'[', b'J', b'j', b'w', b'i', b'l',
-            b'm', b'@', b'j', b'w', b'i', b'l', b'm', b'-', b'd', b'e', b's', b'k', b' ', 0x1b,
-            b'[', b'0', b'1', b';', b'3', b'2', b'm', 0xe2, 0x9e, 0x9c, b' ', 0x1b, b'[', b'0',
-            b'1', b';', b'3', b'2', b'm', b' ', 0x1b, b'[', b'3', b'6', b'm', b'~', b'/', b'c',
+            b' ', b' ', b' ', b'\r', b' ', b'\r', b'\r', 0x1B, b'[', b'0', b'm', 0x1B, b'[', b'2',
+            b'7', b'm', 0x1B, b'[', b'2', b'4', b'm', 0x1B, b'[', b'J', b'j', b'w', b'i', b'l',
+            b'm', b'@', b'j', b'w', b'i', b'l', b'm', b'-', b'd', b'e', b's', b'k', b' ', 0x1B,
+            b'[', b'0', b'1', b';', b'3', b'2', b'm', 0xE2, 0x9E, 0x9C, b' ', 0x1B, b'[', b'0',
+            b'1', b';', b'3', b'2', b'm', b' ', 0x1B, b'[', b'3', b'6', b'm', b'~', b'/', b'c',
             b'o', b'd', b'e',
         ];
 
         let mut handler = MockHandler::default();
         let mut parser = Processor::<TestSyncHandler>::new();
 
-        for byte in BYTES {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, BYTES);
     }
 
     #[test]
     fn parse_designate_g0_as_line_drawing() {
-        static BYTES: &[u8] = &[0x1b, b'(', b'0'];
+        static BYTES: &[u8] = &[0x1B, b'(', b'0'];
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in BYTES {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, BYTES);
 
         assert_eq!(handler.index, CharsetIndex::G0);
         assert_eq!(handler.charset, StandardCharset::SpecialCharacterAndLineDrawing);
@@ -2161,37 +2160,35 @@ mod tests {
 
     #[test]
     fn parse_designate_g1_as_line_drawing_and_invoke() {
-        static BYTES: &[u8] = &[0x1b, b')', b'0', 0x0e];
+        static BYTES: &[u8] = &[0x1B, b')', b'0', 0x0E];
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in &BYTES[..3] {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, &BYTES[..3]);
 
         assert_eq!(handler.index, CharsetIndex::G1);
         assert_eq!(handler.charset, StandardCharset::SpecialCharacterAndLineDrawing);
 
         let mut handler = MockHandler::default();
-        parser.advance(&mut handler, BYTES[3]);
+        parser.advance(&mut handler, &[BYTES[3]]);
 
         assert_eq!(handler.index, CharsetIndex::G1);
     }
 
     #[test]
     fn parse_valid_rgb_colors() {
-        assert_eq!(xparse_color(b"rgb:f/e/d"), Some(Rgb { r: 0xff, g: 0xee, b: 0xdd }));
-        assert_eq!(xparse_color(b"rgb:11/aa/ff"), Some(Rgb { r: 0x11, g: 0xaa, b: 0xff }));
-        assert_eq!(xparse_color(b"rgb:f/ed1/cb23"), Some(Rgb { r: 0xff, g: 0xec, b: 0xca }));
-        assert_eq!(xparse_color(b"rgb:ffff/0/0"), Some(Rgb { r: 0xff, g: 0x0, b: 0x0 }));
+        assert_eq!(xparse_color(b"rgb:f/e/d"), Some(Rgb { r: 0xFF, g: 0xEE, b: 0xDD }));
+        assert_eq!(xparse_color(b"rgb:11/aa/ff"), Some(Rgb { r: 0x11, g: 0xAA, b: 0xFF }));
+        assert_eq!(xparse_color(b"rgb:f/ed1/cb23"), Some(Rgb { r: 0xFF, g: 0xEC, b: 0xCA }));
+        assert_eq!(xparse_color(b"rgb:ffff/0/0"), Some(Rgb { r: 0xFF, g: 0x0, b: 0x0 }));
     }
 
     #[test]
     fn parse_valid_legacy_rgb_colors() {
-        assert_eq!(xparse_color(b"#1af"), Some(Rgb { r: 0x10, g: 0xa0, b: 0xf0 }));
-        assert_eq!(xparse_color(b"#11aaff"), Some(Rgb { r: 0x11, g: 0xaa, b: 0xff }));
-        assert_eq!(xparse_color(b"#110aa0ff0"), Some(Rgb { r: 0x11, g: 0xaa, b: 0xff }));
-        assert_eq!(xparse_color(b"#1100aa00ff00"), Some(Rgb { r: 0x11, g: 0xaa, b: 0xff }));
+        assert_eq!(xparse_color(b"#1af"), Some(Rgb { r: 0x10, g: 0xA0, b: 0xF0 }));
+        assert_eq!(xparse_color(b"#11aaff"), Some(Rgb { r: 0x11, g: 0xAA, b: 0xFF }));
+        assert_eq!(xparse_color(b"#110aa0ff0"), Some(Rgb { r: 0x11, g: 0xAA, b: 0xFF }));
+        assert_eq!(xparse_color(b"#1100aa00ff00"), Some(Rgb { r: 0x11, g: 0xAA, b: 0xFF }));
     }
 
     #[test]
@@ -2228,11 +2225,9 @@ mod tests {
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in bytes {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, bytes);
 
-        assert_eq!(handler.color, Some(Rgb { r: 0xf0, g: 0xf0, b: 0xf0 }));
+        assert_eq!(handler.color, Some(Rgb { r: 0xF0, g: 0xF0, b: 0xF0 }));
     }
 
     #[test]
@@ -2242,9 +2237,7 @@ mod tests {
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in bytes {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, bytes);
 
         assert_eq!(handler.reset_colors, vec![1]);
     }
@@ -2256,9 +2249,7 @@ mod tests {
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in bytes {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, bytes);
 
         let expected: Vec<usize> = (0..256).collect();
         assert_eq!(handler.reset_colors, expected);
@@ -2271,30 +2262,73 @@ mod tests {
         let mut parser = Processor::<TestSyncHandler>::new();
         let mut handler = MockHandler::default();
 
-        for byte in bytes {
-            parser.advance(&mut handler, *byte);
-        }
+        parser.advance(&mut handler, bytes);
 
         let expected: Vec<usize> = (0..256).collect();
         assert_eq!(handler.reset_colors, expected);
     }
 
     #[test]
+    fn partial_sync_updates() {
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
+        assert!(handler.attr.is_none());
+
+        // Start synchronized update.
+
+        parser.advance(&mut handler, b"\x1b[?20");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
+        assert!(handler.attr.is_none());
+
+        parser.advance(&mut handler, b"26h");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 1);
+        assert!(handler.attr.is_none());
+
+        // Dispatch some data.
+
+        parser.advance(&mut handler, b"random \x1b[31m stuff");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 1);
+        assert!(handler.attr.is_none());
+
+        // Extend synchronized update.
+
+        parser.advance(&mut handler, b"\x1b[?20");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 1);
+        assert!(handler.attr.is_none());
+
+        parser.advance(&mut handler, b"26h");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 2);
+        assert!(handler.attr.is_none());
+
+        // Terminate synchronized update.
+
+        parser.advance(&mut handler, b"\x1b[?20");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 2);
+        assert!(handler.attr.is_none());
+
+        parser.advance(&mut handler, b"26l");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
+        assert!(handler.attr.is_some());
+    }
+
+    #[test]
     #[cfg(not(feature = "no_std"))]
     fn contrast() {
-        let rgb1 = Rgb { r: 0xff, g: 0xff, b: 0xff };
+        let rgb1 = Rgb { r: 0xFF, g: 0xFF, b: 0xFF };
         let rgb2 = Rgb { r: 0x00, g: 0x00, b: 0x00 };
         assert!((rgb1.contrast(rgb2) - 21.).abs() < f64::EPSILON);
 
-        let rgb1 = Rgb { r: 0xff, g: 0xff, b: 0xff };
+        let rgb1 = Rgb { r: 0xFF, g: 0xFF, b: 0xFF };
         assert!((rgb1.contrast(rgb1) - 1.).abs() < f64::EPSILON);
 
-        let rgb1 = Rgb { r: 0xff, g: 0x00, b: 0xff };
-        let rgb2 = Rgb { r: 0x00, g: 0xff, b: 0x00 };
+        let rgb1 = Rgb { r: 0xFF, g: 0x00, b: 0xFF };
+        let rgb2 = Rgb { r: 0x00, g: 0xFF, b: 0x00 };
         assert!((rgb1.contrast(rgb2) - 2.285_543_608_124_253_3).abs() < f64::EPSILON);
 
         let rgb1 = Rgb { r: 0x12, g: 0x34, b: 0x56 };
-        let rgb2 = Rgb { r: 0xfe, g: 0xdc, b: 0xba };
+        let rgb2 = Rgb { r: 0xFE, g: 0xDC, b: 0xBA };
         assert!((rgb1.contrast(rgb2) - 9.786_558_997_257_74).abs() < f64::EPSILON);
     }
 }
