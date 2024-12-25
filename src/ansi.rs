@@ -612,6 +612,9 @@ pub trait Handler {
     /// Clear tab stops.
     fn clear_tabs(&mut self, _mode: TabulationClearMode) {}
 
+    /// Set tab stops at every `interval`.
+    fn set_tabs(&mut self, _interval: u16) {}
+
     /// Reset terminal state.
     fn reset_state(&mut self) {}
 
@@ -1574,6 +1577,7 @@ where
             ('E', []) => handler.move_down_and_cr(next_param_or(1) as usize),
             ('F', []) => handler.move_up_and_cr(next_param_or(1) as usize),
             ('G', []) | ('`', []) => handler.goto_col(next_param_or(1) as usize - 1),
+            ('W', [b'?']) if next_param_or(0) == 5 => handler.set_tabs(8),
             ('g', []) => {
                 let mode = match next_param_or(0) {
                     0 => TabulationClearMode::Current,
