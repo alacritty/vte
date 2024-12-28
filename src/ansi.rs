@@ -566,6 +566,9 @@ pub trait Handler {
     /// Clear tab stops.
     fn clear_tabs(&mut self, _mode: TabulationClearMode) {}
 
+    /// Reset tab stops to default.
+    fn reset_tabs(&mut self) {}
+
     /// Reset terminal state.
     fn reset_state(&mut self) {}
 
@@ -1520,6 +1523,13 @@ where
             ('E', []) => handler.move_down_and_cr(next_param_or(1) as usize),
             ('F', []) => handler.move_up_and_cr(next_param_or(1) as usize),
             ('G', []) | ('`', []) => handler.goto_col(next_param_or(1) as usize - 1),
+            ('W', [b'?']) => {
+                if next_param_or(0) == 5 {
+                    handler.reset_tabs();
+                } else {
+                    unhandled!();
+                }
+            },
             ('g', []) => {
                 let mode = match next_param_or(0) {
                     0 => TabulationClearMode::Current,

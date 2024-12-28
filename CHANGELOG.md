@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## 0.14.0
+
+- Support `CSI ? 5 W` to reset tabs stops to 8 columns
+
 ## 0.13.0
 
 - Reexport `cursor_icon` crate in `ansi`
