@@ -1620,12 +1620,7 @@ where
                 if params.is_empty() {
                     handler.terminal_attribute(Attr::Reset);
                 } else {
-                    for attr in attrs_from_sgr_parameters(&mut params_iter) {
-                        match attr {
-                            Some(attr) => handler.terminal_attribute(attr),
-                            None => unhandled!(),
-                        }
-                    }
+                    attrs_from_sgr_parameters(*handler, &mut params_iter);
                 }
             },
             ('m', [b'>']) => {
@@ -1769,9 +1764,7 @@ where
 }
 
 #[inline]
-fn attrs_from_sgr_parameters(params: &mut ParamsIter<'_>) -> Vec<Option<Attr>> {
-    let mut attrs = Vec::with_capacity(params.size_hint().0);
-
+fn attrs_from_sgr_parameters<H: Handler>(handler: &mut H, params: &mut ParamsIter<'_>) {
     while let Some(param) = params.next() {
         let attr = match param {
             [0] => Some(Attr::Reset),
@@ -1851,10 +1844,12 @@ fn attrs_from_sgr_parameters(params: &mut ParamsIter<'_>) -> Vec<Option<Attr>> {
             [107] => Some(Attr::Background(Color::Named(NamedColor::BrightWhite))),
             _ => None,
         };
-        attrs.push(attr);
-    }
 
-    attrs
+        match attr {
+            Some(attr) => handler.terminal_attribute(attr),
+            None => continue,
+        }
+    }
 }
 
 /// Handle colon separated rgb color escape sequence.
