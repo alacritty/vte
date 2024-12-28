@@ -379,13 +379,22 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                         valid_bytes + len
                     },
                     None => {
-                        let extra_bytes = num_bytes - valid_bytes;
-                        for i in 0..extra_bytes {
-                            self.partial_utf8[self.partial_utf8_len + i] = bytes[valid_bytes + i];
+                        if plain_chars < num_bytes {
+                            // Process bytes cut off by escape.
+                            performer.print('�');
+                            self.state = State::Escape;
+                            self.reset_params();
+                            plain_chars + 1
+                        } else {
+                            // Process bytes cut off by the buffer end.
+                            let extra_bytes = num_bytes - valid_bytes;
+                            for i in 0..extra_bytes {
+                                self.partial_utf8[self.partial_utf8_len + i] =
+                                    bytes[valid_bytes + i];
+                            }
+                            self.partial_utf8_len += extra_bytes;
+                            num_bytes
                         }
-                        self.partial_utf8_len += extra_bytes;
-
-                        num_bytes
                     },
                 }
             },
@@ -1168,6 +1177,22 @@ mod tests {
         assert_eq!(dispatcher.dispatched[0], Sequence::Print('a'));
         assert_eq!(dispatcher.dispatched[1], Sequence::Print('�'));
         assert_eq!(dispatcher.dispatched[2], Sequence::Print('b'));
+    }
+
+    #[test]
+    fn partial_utf8_into_esc() {
+        const INPUT: &[u8] = b"\xD8\x1b012";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        parser.advance(&mut dispatcher, INPUT);
+
+        assert_eq!(dispatcher.dispatched.len(), 4);
+        assert_eq!(dispatcher.dispatched[0], Sequence::Print('�'));
+        assert_eq!(dispatcher.dispatched[1], Sequence::Esc(Vec::new(), false, b'0'));
+        assert_eq!(dispatcher.dispatched[2], Sequence::Print('1'));
+        assert_eq!(dispatcher.dispatched[3], Sequence::Print('2'));
     }
 
     #[test]
