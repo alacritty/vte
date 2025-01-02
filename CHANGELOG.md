@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+## 0.13.1
+
+- Add SCP control support
+- Improve SGR performance
+
 ## 0.13.0
 
 - Reexport `cursor_icon` crate in `ansi`
