@@ -2314,6 +2314,38 @@ mod tests {
     }
 
     #[test]
+    fn sync_bursts_buffer() {
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
+        assert!(handler.attr.is_none());
+
+        // Repeat test twice to ensure internal state is reset properly.
+        for _ in 0..2 {
+            // Start synchronized update.
+            parser.advance(&mut handler, b"\x1b[?2026h");
+            assert_eq!(parser.state.sync_state.timeout.is_sync, 1);
+            assert!(handler.attr.is_none());
+
+            // Ensure sync works.
+            parser.advance(&mut handler, b"\x1b[31m");
+            assert_eq!(parser.state.sync_state.timeout.is_sync, 1);
+            assert!(handler.attr.is_none());
+
+            // Exceed sync buffer dimensions.
+            parser.advance(&mut handler, "a".repeat(SYNC_BUFFER_SIZE).as_bytes());
+            assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
+            assert!(handler.attr.take().is_some());
+
+            // Ensure new events are dispatched directly.
+            parser.advance(&mut handler, b"\x1b[31m");
+            assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
+            assert!(handler.attr.take().is_some());
+        }
+    }
+
+    #[test]
     #[cfg(not(feature = "no_std"))]
     fn contrast() {
         let rgb1 = Rgb { r: 0xFF, g: 0xFF, b: 0xFF };
