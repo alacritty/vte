@@ -61,11 +61,7 @@ fn main() {
     loop {
         match handle.read(&mut buf) {
             Ok(0) => break,
-            Ok(n) => {
-                for byte in &buf[..n] {
-                    statemachine.advance(&mut performer, *byte);
-                }
-            },
+            Ok(n) => statemachine.advance(&mut performer, &buf[..n]),
             Err(err) => {
                 println!("err: {}", err);
                 break;
