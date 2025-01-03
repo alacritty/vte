@@ -133,6 +133,46 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         }
     }
 
+    /// Partially advance the parser state.
+    ///
+    /// This is equivalent to [`Self::advance`], but stops when
+    /// [`Perform::terminated`] is true after reading a byte.
+    ///
+    /// Returns the number of bytes read before termination.
+    ///
+    /// See [`Perform::advance`] for more details.
+    #[inline]
+    #[must_use = "Returned value should be used to processs the remaining bytes"]
+    pub fn advance_until_terminated<P: Perform>(
+        &mut self,
+        performer: &mut P,
+        bytes: &[u8],
+    ) -> usize {
+        let mut i = 0;
+
+        // Handle partial codepoints from previous calls to `advance`.
+        if self.partial_utf8_len > 0 {
+            i += self.advance_partial_utf8(performer, bytes);
+        }
+
+        while i < bytes.len() && !performer.terminated() {
+            match self.state {
+                State::Ground => i += self.advance_ground(performer, &bytes[i..]),
+                _ => {
+                    let byte = bytes[i];
+                    let change = table::STATE_CHANGES[self.state as usize][byte as usize];
+                    let (state, action) = unpack(change);
+
+                    self.perform_state_change(performer, state, action, byte);
+
+                    i += 1;
+                },
+            }
+        }
+
+        i
+    }
+
     #[inline]
     fn perform_state_change<P>(&mut self, performer: &mut P, state: State, action: Action, byte: u8)
     where
@@ -529,6 +569,18 @@ pub trait Perform {
     /// The `ignore` flag indicates that more than two intermediates arrived and
     /// subsequent characters were ignored.
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
+
+    /// Whether the parser should terminate prematurely.
+    ///
+    /// This can be used in conjunction with
+    /// [`Parser::advance_until_terminated`] to terminate the parser after
+    /// receiving certain escape sequences like synchronized updates.
+    ///
+    /// This is checked after every parsed byte, so no expensive computation
+    /// should take place in this function.
+    fn terminated(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(all(test, feature = "no_std"))]
