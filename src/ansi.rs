@@ -2346,6 +2346,25 @@ mod tests {
     }
 
     #[test]
+    fn mixed_sync_escape() {
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
+        assert!(handler.attr.is_none());
+
+        // Start synchronized update with immediate SGR.
+        parser.advance(&mut handler, b"\x1b[?2026h\x1b[31m");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 1);
+        assert!(handler.attr.is_none());
+
+        // Terminate synchronized update and check for SGR.
+        parser.advance(&mut handler, b"\x1b[?2026l");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
+        assert!(handler.attr.is_some());
+    }
+
+    #[test]
     #[cfg(not(feature = "no_std"))]
     fn contrast() {
         let rgb1 = Rgb { r: 0xFF, g: 0xFF, b: 0xFF };
