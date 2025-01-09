@@ -29,4 +29,4 @@ cursor-icon = { version = "1.0.0", default-features = false, optional = true }
 log = { version = "0.4.17", optional = true }
 memchr = "2.7.4"
 serde = { version = "1.0.160", features = ["derive"], optional = true }
-vte_generate_state_changes = { version = "0.1.0", path = "vte_generate_state_changes" }
+vte_generate_state_changes = { version = "0.2.0", path = "vte_generate_state_changes" }
