@@ -2,7 +2,7 @@ use core::mem;
 
 #[allow(dead_code)]
 #[repr(u8)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Default, Copy, Clone)]
 pub enum State {
     CsiEntry,
     CsiIgnore,
@@ -25,7 +25,7 @@ pub enum State {
 // NOTE: Removing the unused actions prefixed with `_` will reduce performance.
 #[allow(dead_code)]
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum Action {
     None,
     _Clear,

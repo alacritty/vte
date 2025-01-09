@@ -300,7 +300,7 @@ impl<T: Timeout> Processor<T> {
         H: Handler,
     {
         let mut processed = 0;
-        while processed < bytes.len() {
+        while processed != bytes.len() {
             if self.state.sync_state.timeout.pending_timeout() {
                 processed += self.advance_sync(handler, &bytes[processed..]);
             } else {
@@ -345,7 +345,7 @@ impl<T: Timeout> Processor<T> {
             // function checks for BSUs in reverse.
             Some(bsu_offset) => {
                 let new_len = self.state.sync_state.buffer.len() - bsu_offset;
-                self.state.sync_state.buffer.rotate_left(bsu_offset);
+                self.state.sync_state.buffer.copy_within(bsu_offset.., 0);
                 self.state.sync_state.buffer.truncate(new_len);
             },
             // Report mode and clear state if no new BSU is present.

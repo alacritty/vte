@@ -117,7 +117,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             i += self.advance_partial_utf8(performer, bytes);
         }
 
-        while i < bytes.len() {
+        while i != bytes.len() {
             match self.state {
                 State::Ground => i += self.advance_ground(performer, &bytes[i..]),
                 _ => {
@@ -151,11 +151,11 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         let mut i = 0;
 
         // Handle partial codepoints from previous calls to `advance`.
-        if self.partial_utf8_len > 0 {
+        if self.partial_utf8_len != 0 {
             i += self.advance_partial_utf8(performer, bytes);
         }
 
-        while i < bytes.len() && !performer.terminated() {
+        while i != bytes.len() && !performer.terminated() {
             match self.state {
                 State::Ground => i += self.advance_ground(performer, &bytes[i..]),
                 _ => {
@@ -178,7 +178,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     where
         P: Perform,
     {
-        if matches!(state, State::Anywhere) {
+        if state == State::Anywhere {
             self.perform_action(performer, action, byte);
             return;
         }
@@ -212,7 +212,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             _ => (),
         }
 
-        if matches!(action, Action::None) {
+        if action == Action::None {
             match state {
                 State::CsiEntry | State::DcsEntry | State::Escape => self.reset_params(),
                 State::DcsPassthrough => {
@@ -428,11 +428,10 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                         } else {
                             // Process bytes cut off by the buffer end.
                             let extra_bytes = num_bytes - valid_bytes;
-                            for i in 0..extra_bytes {
-                                self.partial_utf8[self.partial_utf8_len + i] =
-                                    bytes[valid_bytes + i];
-                            }
-                            self.partial_utf8_len += extra_bytes;
+                            let partial_len = self.partial_utf8_len + extra_bytes;
+                            self.partial_utf8[self.partial_utf8_len..partial_len]
+                                .copy_from_slice(&bytes[valid_bytes..valid_bytes + extra_bytes]);
+                            self.partial_utf8_len = partial_len;
                             num_bytes
                         }
                     },
@@ -578,6 +577,7 @@ pub trait Perform {
     ///
     /// This is checked after every parsed byte, so no expensive computation
     /// should take place in this function.
+    #[inline(always)]
     fn terminated(&self) -> bool {
         false
     }

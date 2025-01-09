@@ -5,7 +5,7 @@ use vte_generate_state_changes::generate_state_changes;
 use crate::definitions::{pack, Action, State};
 
 // Generate state changes at compile-time
-pub static STATE_CHANGES: [[u8; 256]; 13] = state_changes();
+pub const STATE_CHANGES: [[u8; 256]; 13] = state_changes();
 generate_state_changes!(state_changes, {
     Escape {
         0x00..=0x17 => (Anywhere, Execute),
