@@ -1,6 +1,12 @@
 CHANGELOG
 =========
 
+## 0.14.0
+
+- `Parser::advance` now takes byte slices, instead of individual bytes
+- `Parser::advance_until_terminated` allows premature termination,
+    by checking for `Perform::terminated` after each dispatch
+
 ## 0.13.1
 
 - Add SCP control support
