@@ -118,24 +118,9 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             match self.state {
                 State::Ground => i += self.advance_ground(performer, &bytes[i..]),
                 _ => {
+                    // Do not inline.
                     let byte = bytes[i];
-                    match self.state {
-                        State::CsiEntry => self.advance_csi_entry(performer, byte),
-                        State::CsiIgnore => self.advance_csi_ignore(performer, byte),
-                        State::CsiIntermediate => self.advance_csi_intermediate(performer, byte),
-                        State::CsiParam => self.advance_csi_param(performer, byte),
-                        State::DcsEntry => self.advance_dcs_entry(performer, byte),
-                        State::DcsIgnore => self.anywhere(performer, byte),
-                        State::DcsIntermediate => self.advance_dcs_intermediate(performer, byte),
-                        State::DcsParam => self.advance_dcs_param(performer, byte),
-                        State::DcsPassthrough => self.advance_dcs_passthrough(performer, byte),
-                        State::Escape => self.advance_esc(performer, byte),
-                        State::EscapeIntermediate => self.advance_esc_intermediate(performer, byte),
-                        State::OscString => self.advance_osc_string(performer, byte),
-                        State::SosPmApcString => self.anywhere(performer, byte),
-                        State::Ground => unreachable!(),
-                    }
-
+                    self.change_state(performer, byte);
                     i += 1;
                 },
             }
@@ -168,30 +153,35 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             match self.state {
                 State::Ground => i += self.advance_ground(performer, &bytes[i..]),
                 _ => {
+                    // Do not inline.
                     let byte = bytes[i];
-                    match self.state {
-                        State::CsiEntry => self.advance_csi_entry(performer, byte),
-                        State::CsiIgnore => self.advance_csi_ignore(performer, byte),
-                        State::CsiIntermediate => self.advance_csi_intermediate(performer, byte),
-                        State::CsiParam => self.advance_csi_param(performer, byte),
-                        State::DcsEntry => self.advance_dcs_entry(performer, byte),
-                        State::DcsIgnore => self.anywhere(performer, byte),
-                        State::DcsIntermediate => self.advance_dcs_intermediate(performer, byte),
-                        State::DcsParam => self.advance_dcs_param(performer, byte),
-                        State::DcsPassthrough => self.advance_dcs_passthrough(performer, byte),
-                        State::Escape => self.advance_esc(performer, byte),
-                        State::EscapeIntermediate => self.advance_esc_intermediate(performer, byte),
-                        State::OscString => self.advance_osc_string(performer, byte),
-                        State::SosPmApcString => self.anywhere(performer, byte),
-                        State::Ground => unreachable!(),
-                    }
-
+                    self.change_state(performer, byte);
                     i += 1;
                 },
             }
         }
 
         i
+    }
+
+    #[inline(always)]
+    fn change_state<P: Perform>(&mut self, performer: &mut P, byte: u8) {
+        match self.state {
+            State::CsiEntry => self.advance_csi_entry(performer, byte),
+            State::CsiIgnore => self.advance_csi_ignore(performer, byte),
+            State::CsiIntermediate => self.advance_csi_intermediate(performer, byte),
+            State::CsiParam => self.advance_csi_param(performer, byte),
+            State::DcsEntry => self.advance_dcs_entry(performer, byte),
+            State::DcsIgnore => self.anywhere(performer, byte),
+            State::DcsIntermediate => self.advance_dcs_intermediate(performer, byte),
+            State::DcsParam => self.advance_dcs_param(performer, byte),
+            State::DcsPassthrough => self.advance_dcs_passthrough(performer, byte),
+            State::Escape => self.advance_esc(performer, byte),
+            State::EscapeIntermediate => self.advance_esc_intermediate(performer, byte),
+            State::OscString => self.advance_osc_string(performer, byte),
+            State::SosPmApcString => self.anywhere(performer, byte),
+            State::Ground => unreachable!(),
+        }
     }
 
     #[inline(always)]
@@ -327,7 +317,6 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     fn advance_dcs_passthrough<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
             0x00..=0x17 | 0x19 | 0x1C..=0x7E => performer.put(byte),
-            0x7F => (),
             0x18 | 0x1A => {
                 performer.unhook();
                 performer.execute(byte);
@@ -338,6 +327,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.reset_params();
                 self.state = State::Escape
             },
+            0x7F => (),
             0x9C => {
                 performer.unhook();
                 self.state = State::Ground
@@ -350,7 +340,6 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     fn advance_esc<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
             0x00..=0x17 | 0x19 | 0x1C..=0x1F => performer.execute(byte),
-            0x1B => self.reset_params(),
             0x20..=0x2F => {
                 self.action_collect(byte);
                 self.state = State::EscapeIntermediate
@@ -390,7 +379,13 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
                 self.state = State::Ground
             },
-            _ => self.anywhere(performer, byte),
+            // Anywhere.
+            0x18 | 0x1A => {
+                performer.execute(byte);
+                self.state = State::Ground
+            },
+            0x1B => (),
+            _ => (),
         }
     }
 
@@ -487,7 +482,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         }
     }
 
-    // When we transition from the 0x3A.
+    /// Advance to the next subparameter.
     #[inline]
     fn action_subparam(&mut self) {
         if self.params.is_full() {
@@ -498,7 +493,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         }
     }
 
-    // When we transition from the 0x3B.
+    /// Advance to the next parameter.
     #[inline]
     fn action_param(&mut self) {
         if self.params.is_full() {
@@ -509,7 +504,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         }
     }
 
-    // Neither 0x3A nor 0x3B.
+    /// Advance inside the parameter without terminating it.
     #[inline]
     fn action_paramnext(&mut self, byte: u8) {
         if self.params.is_full() {
@@ -521,20 +516,20 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         }
     }
 
-    // Add OSC param separator
+    /// Add OSC param separator.
     #[inline]
     fn action_osc_put_param(&mut self) {
         let idx = self.osc_raw.len();
 
         let param_idx = self.osc_num_params;
         match param_idx {
-            // First param is special - 0 to current byte index
+            // First param is special - 0 to current byte index.
             0 => self.osc_params[param_idx] = (0, idx),
 
-            // Only process up to MAX_OSC_PARAMS
+            // Only process up to MAX_OSC_PARAMS.
             MAX_OSC_PARAMS => return,
 
-            // All other params depend on previous indexing
+            // All other params depend on previous indexing.
             _ => {
                 let prev = self.osc_params[param_idx - 1];
                 let begin = prev.1;
