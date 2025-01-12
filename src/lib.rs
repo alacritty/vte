@@ -460,6 +460,22 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 c.len_utf8() - old_bytes
             },
             Err(err) => {
+                let valid_bytes = err.valid_up_to();
+                // If we have any valid bytes, that means we partially copied another
+                // utf8 character into `partial_utf8`. Since we only care about the
+                // first character, we just ignore the rest.
+                if valid_bytes > 0 {
+                    let c = unsafe {
+                        let parsed = str::from_utf8_unchecked(&self.partial_utf8[..valid_bytes]);
+                        parsed.chars().next().unwrap_unchecked()
+                    };
+
+                    performer.print(c);
+
+                    self.partial_utf8_len = 0;
+                    return valid_bytes - old_bytes;
+                }
+
                 match err.error_len() {
                     // If the partial character was also invalid, emit the replacement
                     // character.
@@ -469,26 +485,8 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                         self.partial_utf8_len = 0;
                         invalid_len - old_bytes
                     },
-                    None => {
-                        // If we have any valid bytes, that means we partially copied another
-                        // utf8 character into `partial_utf8`. Since we only care about the
-                        // first character, we just ignore the rest.
-                        let valid_bytes = err.valid_up_to();
-                        if valid_bytes > 0 {
-                            let c = unsafe {
-                                let parsed =
-                                    str::from_utf8_unchecked(&self.partial_utf8[..valid_bytes]);
-                                parsed.chars().next().unwrap_unchecked()
-                            };
-                            performer.print(c);
-
-                            self.partial_utf8_len = 0;
-                            valid_bytes - old_bytes
-                        } else {
-                            // If the character still isn't complete, wait for more data.
-                            bytes.len()
-                        }
-                    },
+                    // If the character still isn't complete, wait for more data.
+                    None => to_copy,
                 }
             },
         }
@@ -1229,6 +1227,20 @@ mod tests {
         assert_eq!(dispatcher.dispatched[0], Sequence::Print('a'));
         assert_eq!(dispatcher.dispatched[1], Sequence::Print('�'));
         assert_eq!(dispatcher.dispatched[2], Sequence::Print('b'));
+    }
+
+    #[test]
+    fn partial_invalid_utf8_split() {
+        const INPUT: &[u8] = b"\xE4\xBF\x99\xB5";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        parser.advance(&mut dispatcher, &INPUT[..2]);
+        parser.advance(&mut dispatcher, &INPUT[2..]);
+
+        assert_eq!(dispatcher.dispatched[0], Sequence::Print('俙'));
+        assert_eq!(dispatcher.dispatched[1], Sequence::Print('�'));
     }
 
     #[test]
