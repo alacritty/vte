@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## 0.14.1
+
+- Crash when partial advance buffer stopped inside some grapheme boundaries
+
 ## 0.14.0
 
 - `Parser::advance` now takes byte slices, instead of individual bytes
