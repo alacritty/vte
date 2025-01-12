@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+## 0.14.1
+
+- Fixed a crash when parsing unicode data
+- Improve performance with escape sequence heavy input
+
 ## 0.14.0
 
 - `Parser::advance` now takes byte slices, instead of individual bytes
