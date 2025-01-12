@@ -118,7 +118,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             match self.state {
                 State::Ground => i += self.advance_ground(performer, &bytes[i..]),
                 _ => {
-                    // Do not inline.
+                    // Inlining it results in worse codegen.
                     let byte = bytes[i];
                     self.change_state(performer, byte);
                     i += 1;
@@ -153,7 +153,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             match self.state {
                 State::Ground => i += self.advance_ground(performer, &bytes[i..]),
                 _ => {
-                    // Do not inline.
+                    // Inlining it results in worse codegen.
                     let byte = bytes[i];
                     self.change_state(performer, byte);
                     i += 1;
@@ -510,7 +510,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         if self.params.is_full() {
             self.ignoring = true;
         } else {
-            // Continue collecting bytes into param
+            // Continue collecting bytes into param.
             self.param = self.param.saturating_mul(10);
             self.param = self.param.saturating_add((byte - b'0') as u16);
         }
