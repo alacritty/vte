@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Support `CSI ? 5 W` to reset tabs stops to every 8th column
+
 ## 0.14.1
 
 - Crash when partial advance buffer stopped inside some grapheme boundaries
