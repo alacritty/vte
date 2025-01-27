@@ -13,13 +13,13 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 use core::fmt::{self, Display, Formatter, Write};
-#[cfg(not(feature = "no_std"))]
+#[cfg(feature = "std")]
 use core::ops::Mul;
 use core::ops::{Add, Sub};
 use core::str::FromStr;
 use core::time::Duration;
 use core::{iter, mem, str};
-#[cfg(not(feature = "no_std"))]
+#[cfg(feature = "std")]
 use std::time::Instant;
 
 use bitflags::bitflags;
@@ -67,7 +67,7 @@ impl Rgb {
     /// Implementation of [W3C's luminance algorithm].
     ///
     /// [W3C's luminance algorithm]: https://www.w3.org/TR/WCAG20/#relativeluminancedef
-    #[cfg(not(feature = "no_std"))]
+    #[cfg(feature = "std")]
     pub fn luminance(self) -> f64 {
         let channel_luminance = |channel| {
             let channel = channel as f64 / 255.;
@@ -88,7 +88,7 @@ impl Rgb {
     /// Implementation of [W3C's contrast algorithm].
     ///
     /// [W3C's contrast algorithm]: https://www.w3.org/TR/WCAG20/#contrast-ratiodef
-    #[cfg(not(feature = "no_std"))]
+    #[cfg(feature = "std")]
     pub fn contrast(self, other: Rgb) -> f64 {
         let self_luminance = self.luminance();
         let other_luminance = other.luminance();
@@ -104,7 +104,7 @@ impl Rgb {
 }
 
 // A multiply function for Rgb, as the default dim is just *2/3.
-#[cfg(not(feature = "no_std"))]
+#[cfg(feature = "std")]
 impl Mul<f32> for Rgb {
     type Output = Rgb;
 
@@ -266,7 +266,7 @@ impl<T: Timeout> Default for SyncState<T> {
 
 /// The processor wraps a `crate::Parser` to ultimately call methods on a
 /// Handler.
-#[cfg(not(feature = "no_std"))]
+#[cfg(feature = "std")]
 #[derive(Default)]
 pub struct Processor<T: Timeout = StdSyncHandler> {
     state: ProcessorState<T>,
@@ -275,7 +275,7 @@ pub struct Processor<T: Timeout = StdSyncHandler> {
 
 /// The processor wraps a `crate::Parser` to ultimately call methods on a
 /// Handler.
-#[cfg(feature = "no_std")]
+#[cfg(not(feature = "std"))]
 #[derive(Default)]
 pub struct Processor<T: Timeout> {
     state: ProcessorState<T>,
@@ -438,13 +438,13 @@ impl<'a, H: Handler + 'a, T: Timeout> Performer<'a, H, T> {
     }
 }
 
-#[cfg(not(feature = "no_std"))]
+#[cfg(feature = "std")]
 #[derive(Default)]
 pub struct StdSyncHandler {
     timeout: Option<Instant>,
 }
 
-#[cfg(not(feature = "no_std"))]
+#[cfg(feature = "std")]
 impl StdSyncHandler {
     /// Synchronized update expiration time.
     #[inline]
@@ -453,7 +453,7 @@ impl StdSyncHandler {
     }
 }
 
-#[cfg(not(feature = "no_std"))]
+#[cfg(feature = "std")]
 impl Timeout for StdSyncHandler {
     #[inline]
     fn set_timeout(&mut self, duration: Duration) {
@@ -2438,7 +2438,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "no_std"))]
+    #[cfg(feature = "std")]
     fn contrast() {
         let rgb1 = Rgb { r: 0xFF, g: 0xFF, b: 0xFF };
         let rgb2 = Rgb { r: 0x00, g: 0x00, b: 0x00 };
