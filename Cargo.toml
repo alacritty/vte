@@ -15,12 +15,12 @@ rust-version = "1.62.1"
 
 [features]
 ansi = ["log", "cursor-icon", "bitflags"]
-default = ["no_std"]
-no_std = ["arrayvec"]
+default = ["std"]
+std = ["memchr/std"]
 serde = ["dep:serde"]
 
 [dependencies]
-arrayvec = { version = "0.7.2", default-features = false, optional = true }
+arrayvec = { version = "0.7.2", default-features = false }
 bitflags = { version = "2.3.3", default-features = false, optional = true }
 cursor-icon = { version = "1.0.0", default-features = false, optional = true }
 log = { version = "0.4.17", optional = true }

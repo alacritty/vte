@@ -27,12 +27,12 @@
 //! [`Perform`]: trait.Perform.html
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
 #![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use)]
-#![cfg_attr(feature = "no_std", no_std)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 use core::mem::MaybeUninit;
 use core::str;
 
-#[cfg(feature = "no_std")]
+#[cfg(not(feature = "std"))]
 use arrayvec::ArrayVec;
 
 mod params;
@@ -50,7 +50,7 @@ const MAX_OSC_RAW: usize = 1024;
 /// [`Perform`]: trait.Perform.html
 ///
 /// Generic over the value for the size of the raw Operating System Command
-/// buffer. Only used when the `no_std` feature is enabled.
+/// buffer. Only used when the `std` feature is not enabled.
 #[derive(Default)]
 pub struct Parser<const OSC_RAW_BUF_SIZE: usize = MAX_OSC_RAW> {
     state: State,
@@ -58,9 +58,9 @@ pub struct Parser<const OSC_RAW_BUF_SIZE: usize = MAX_OSC_RAW> {
     intermediate_idx: usize,
     params: Params,
     param: u16,
-    #[cfg(feature = "no_std")]
+    #[cfg(not(feature = "std"))]
     osc_raw: ArrayVec<u8, OSC_RAW_BUF_SIZE>,
-    #[cfg(not(feature = "no_std"))]
+    #[cfg(feature = "std")]
     osc_raw: Vec<u8>,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
@@ -85,7 +85,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     /// ```rust
     /// let mut p = vte::Parser::<64>::new_with_size();
     /// ```
-    #[cfg(feature = "no_std")]
+    #[cfg(not(feature = "std"))]
     pub fn new_with_size() -> Parser<OSC_RAW_BUF_SIZE> {
         Default::default()
     }
@@ -422,7 +422,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.state = State::Escape
             },
             0x3B => {
-                #[cfg(feature = "no_std")]
+                #[cfg(not(feature = "std"))]
                 {
                     if self.osc_raw.is_full() {
                         return;
@@ -542,7 +542,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
 
     #[inline(always)]
     fn action_osc_put(&mut self, byte: u8) {
-        #[cfg(feature = "no_std")]
+        #[cfg(not(feature = "std"))]
         {
             if self.osc_raw.is_full() {
                 return;
@@ -825,7 +825,7 @@ pub trait Perform {
     }
 }
 
-#[cfg(all(test, feature = "no_std"))]
+#[cfg(all(test, not(feature = "std")))]
 #[macro_use]
 extern crate std;
 
@@ -1039,10 +1039,10 @@ mod tests {
                 assert_eq!(params.len(), 2);
                 assert_eq!(params[0], b"52");
 
-                #[cfg(not(feature = "no_std"))]
+                #[cfg(feature = "std")]
                 assert_eq!(params[1].len(), NUM_BYTES + INPUT_END.len());
 
-                #[cfg(feature = "no_std")]
+                #[cfg(not(feature = "std"))]
                 assert_eq!(params[1].len(), MAX_OSC_RAW - params[0].len());
             },
             _ => panic!("expected osc sequence"),
@@ -1308,7 +1308,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "no_std")]
+    #[cfg(not(feature = "std"))]
     #[test]
     fn build_with_fixed_size() {
         const INPUT: &[u8] = b"\x1b[3;1\x1b[?1049h";
@@ -1328,7 +1328,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "no_std")]
+    #[cfg(not(feature = "std"))]
     #[test]
     fn exceed_fixed_osc_buffer_size() {
         const OSC_BUFFER_SIZE: usize = 32;
@@ -1362,7 +1362,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "no_std")]
+    #[cfg(not(feature = "std"))]
     #[test]
     fn fixed_size_osc_containing_string_terminator() {
         const INPUT_START: &[u8] = b"\x1b]2;";
