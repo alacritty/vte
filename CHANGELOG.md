@@ -1,7 +1,7 @@
 CHANGELOG
 =========
 
-## Unreleased
+## 0.15.0
 
 - Support `CSI ? 5 W` to reset tabs stops to every 8th column
 - Replaced `no_std` with a new `std` feature
