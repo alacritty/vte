@@ -19,7 +19,7 @@ pub enum State {
     #[default]
     Ground = 12,
     OscString = 13,
-    SosPmApcString = 14,
+    OpaqueString = 14,
     Utf8 = 15,
 }
 
@@ -28,21 +28,34 @@ pub enum State {
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
     None = 0,
-    Clear = 1,
-    Collect = 2,
-    CsiDispatch = 3,
-    EscDispatch = 4,
-    Execute = 5,
-    Hook = 6,
-    Ignore = 7,
-    OscEnd = 8,
-    OscPut = 9,
-    OscStart = 10,
-    Param = 11,
-    Print = 12,
-    Put = 13,
-    Unhook = 14,
-    BeginUtf8 = 15,
+    Collect = 1,
+    CsiDispatch = 2,
+    EscDispatch = 3,
+    Execute = 4,
+    Ignore = 5,
+    OscPut = 6,
+    Param = 7,
+    Print = 8,
+    Put = 9,
+    BeginUtf8 = 10,
+    OpaquePut = 11,
+
+    // Actions that do not need to be packed as 4 bits in the state table
+    // can have values higher than 16.
+    Clear = 16,
+    Hook = 17,
+    Unhook = 18,
+    OscStart = 19,
+    OscEnd = 20,
+    OpaqueStart = 21,
+    OpaqueEnd = 22,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum OpaqueSequenceKind {
+    Sos,
+    Pm,
+    Apc,
 }
 
 /// Unpack a u8 into a State and Action
@@ -57,9 +70,9 @@ pub fn unpack(delta: u8) -> (State, Action) {
     unsafe {
         (
             // State is stored in bottom 4 bits
-            mem::transmute(delta & 0x0f),
+            mem::transmute::<u8, State>(delta & 0x0f),
             // Action is stored in top 4 bits
-            mem::transmute(delta >> 4),
+            mem::transmute::<u8, Action>(delta >> 4),
         )
     }
 }
@@ -75,8 +88,8 @@ mod tests {
 
     #[test]
     fn unpack_state_action() {
-        match unpack(0xee) {
-            (State::SosPmApcString, Action::Unhook) => (),
+        match unpack(0xaa) {
+            (State::Escape, Action::BeginUtf8) => (),
             _ => panic!("unpack failed"),
         }
 
@@ -85,27 +98,16 @@ mod tests {
             _ => panic!("unpack failed"),
         }
 
-        match unpack(0xff) {
-            (State::Utf8, Action::BeginUtf8) => (),
+        match unpack(0xbf) {
+            (State::Utf8, Action::OpaquePut) => (),
             _ => panic!("unpack failed"),
         }
     }
 
     #[test]
     fn pack_state_action() {
-        match unpack(0xee) {
-            (State::SosPmApcString, Action::Unhook) => (),
-            _ => panic!("unpack failed"),
-        }
-
-        match unpack(0x0f) {
-            (State::Utf8, Action::None) => (),
-            _ => panic!("unpack failed"),
-        }
-
-        match unpack(0xff) {
-            (State::Utf8, Action::BeginUtf8) => (),
-            _ => panic!("unpack failed"),
-        }
+        assert_eq!(pack(State::Escape, Action::BeginUtf8), 0xaa);
+        assert_eq!(pack(State::Utf8, Action::None), 0x0f);
+        assert_eq!(pack(State::Utf8, Action::OpaquePut), 0xbf);
     }
 }
