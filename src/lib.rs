@@ -179,7 +179,9 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             State::Escape => self.advance_esc(performer, byte),
             State::EscapeIntermediate => self.advance_esc_intermediate(performer, byte),
             State::OscString => self.advance_osc_string(performer, byte),
-            State::SosPmApcString => self.anywhere(performer, byte),
+            State::SosString => self.advance_opaque_string(SosDispatch(performer), byte),
+            State::ApcString => self.advance_opaque_string(ApcDispatch(performer), byte),
+            State::PmString => self.advance_opaque_string(PmDispatch(performer), byte),
             State::Ground => unreachable!(),
         }
     }
@@ -356,7 +358,12 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
                 self.state = State::Ground
             },
-            0x58 => self.state = State::SosPmApcString,
+            0x58 => {
+                self.state = {
+                    performer.sos_start();
+                    State::SosString
+                }
+            },
             0x59..=0x5A => {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
                 self.state = State::Ground
@@ -374,7 +381,14 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.osc_num_params = 0;
                 self.state = State::OscString
             },
-            0x5E..=0x5F => self.state = State::SosPmApcString,
+            0x5E => {
+                performer.pm_start();
+                self.state = State::PmString
+            },
+            0x5F => {
+                performer.apc_start();
+                self.state = State::ApcString
+            },
             0x60..=0x7E => {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
                 self.state = State::Ground
@@ -431,6 +445,41 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.action_osc_put_param()
             },
             _ => self.action_osc_put(byte),
+        }
+    }
+
+    #[inline(always)]
+    fn advance_opaque_string<D: OpaqueDispatch>(&mut self, mut dispatcher: D, byte: u8) {
+        match byte {
+            0x07 => {
+                // The standard only supports ST-terminated SOS/APC/PM strings, using either
+                // ESC-ST (ESC-\) and C1-ST (0x9C), but kitty (and probably some other
+                // terminals) also support bell-terminated strings. Some
+                // terminals (including Kitty), do not support C1-ST (0x9C) as a
+                // terminator, which means every character from 0x20-0xFF can be
+                // used with this sequence in theory.
+                dispatcher.opaque_end();
+                self.state = State::Ground
+            },
+            0x18 | 0x1A => {
+                // XTerm terminates SOS/APC/PM strings on C1 CAN (^X) and SUB (^Z). This is also
+                // the same behavior we implement for OSC strings.
+                dispatcher.opaque_end();
+                dispatcher.execute(byte);
+                self.state = State::Ground
+            },
+            0x1B => {
+                // Any escape code ends the SOS/APC/PM string. This is not standard behavior,
+                // but avoids having to keep additional state.
+                dispatcher.opaque_end();
+                self.state = State::Escape
+            },
+            0x20..=0xFF => {
+                // Only dispatch valid characters.
+                dispatcher.opaque_put(byte)
+            },
+            // Ignore all other control codes
+            _ => (),
         }
     }
 
@@ -743,7 +792,9 @@ enum State {
     Escape,
     EscapeIntermediate,
     OscString,
-    SosPmApcString,
+    SosString,
+    ApcString,
+    PmString,
     #[default]
     Ground,
 }
@@ -811,6 +862,41 @@ pub trait Perform {
     /// subsequent characters were ignored.
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
 
+    /// Invoked when the beginning of a new SOS (Start of String) sequence is
+    /// encountered.
+    fn sos_start(&mut self) {}
+
+    /// Invoked when the beginning of a new APC (Application Program Command)
+    /// sequence is encountered.
+    fn apc_start(&mut self) {}
+
+    /// Invoked when the beginning of a new PM (Privacy Message) sequence is
+    /// encountered.
+    fn pm_start(&mut self) {}
+
+    /// Invoked for every valid character (0x20-0xFF) in a SOS (Start of String)
+    /// sequence.
+    fn sos_dispatch(&mut self, _byte: u8) {}
+
+    /// Invoked for every valid character (0x20-0xFF) in an APC (Application
+    /// Program Command) sequence.
+    fn apc_dispatch(&mut self, _byte: u8) {}
+
+    /// Invoked for every valid character (0x20-0xFF) in a PM (Privacy Message)
+    /// sequence.
+    fn pm_dispatch(&mut self, _byte: u8) {}
+
+    /// Invoked when the end of an SOS (Start of String) sequence is
+    /// encountered.
+    fn sos_string_end(&mut self) {}
+
+    /// Invoked when the end of an APC (Application Program Command) sequence is
+    /// encountered.
+    fn apc_string_end(&mut self) {}
+
+    /// Invoked when the end of a PM (Privacy Message) sequence is encountered.
+    fn pm_string_end(&mut self) {}
+
     /// Whether the parser should terminate prematurely.
     ///
     /// This can be used in conjunction with
@@ -822,6 +908,69 @@ pub trait Perform {
     #[inline(always)]
     fn terminated(&self) -> bool {
         false
+    }
+}
+
+trait OpaqueDispatch {
+    fn execute(&mut self, byte: u8);
+    fn opaque_put(&mut self, byte: u8);
+    fn opaque_end(&mut self);
+}
+
+struct SosDispatch<'a, P: Perform>(&'a mut P);
+
+impl<P: Perform> OpaqueDispatch for SosDispatch<'_, P> {
+    #[inline(always)]
+    fn execute(&mut self, byte: u8) {
+        self.0.execute(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_put(&mut self, byte: u8) {
+        self.0.sos_dispatch(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_end(&mut self) {
+        self.0.sos_string_end();
+    }
+}
+
+struct ApcDispatch<'a, P: Perform>(&'a mut P);
+
+impl<P: Perform> OpaqueDispatch for ApcDispatch<'_, P> {
+    #[inline(always)]
+    fn execute(&mut self, byte: u8) {
+        self.0.execute(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_put(&mut self, byte: u8) {
+        self.0.apc_dispatch(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_end(&mut self) {
+        self.0.apc_string_end();
+    }
+}
+
+struct PmDispatch<'a, P: Perform>(&'a mut P);
+
+impl<P: Perform> OpaqueDispatch for PmDispatch<'_, P> {
+    #[inline(always)]
+    fn execute(&mut self, byte: u8) {
+        self.0.execute(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_put(&mut self, byte: u8) {
+        self.0.pm_dispatch(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_end(&mut self) {
+        self.0.pm_string_end();
     }
 }
 
