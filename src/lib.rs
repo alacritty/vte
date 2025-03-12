@@ -979,12 +979,21 @@ mod tests {
         b'c', b'r', b'i', b't', b't', b'y', 0x07, // End OSC
     ];
 
+    const ST_ESC_SEQUENCE: &[Sequence] = &[Sequence::Esc(vec![], false, 0x5C)];
+
     #[derive(Default)]
     struct Dispatcher {
         dispatched: Vec<Sequence>,
     }
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    enum OpaqueSequenceKind {
+        Sos,
+        Pm,
+        Apc,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
     enum Sequence {
         Osc(Vec<Vec<u8>>, bool),
         Csi(Vec<Vec<u16>>, Vec<u8>, bool, char),
@@ -993,6 +1002,9 @@ mod tests {
         DcsPut(u8),
         Print(char),
         Execute(u8),
+        OpaqueStart(OpaqueSequenceKind),
+        OpaquePut(OpaqueSequenceKind, u8),
+        OpaqueEnd(OpaqueSequenceKind),
         DcsUnhook,
     }
 
@@ -1033,6 +1045,42 @@ mod tests {
 
         fn execute(&mut self, byte: u8) {
             self.dispatched.push(Sequence::Execute(byte));
+        }
+
+        fn sos_start(&mut self) {
+            self.dispatched.push(Sequence::OpaqueStart(OpaqueSequenceKind::Sos));
+        }
+
+        fn sos_put(&mut self, byte: u8) {
+            self.dispatched.push(Sequence::OpaquePut(OpaqueSequenceKind::Sos, byte));
+        }
+
+        fn sos_end(&mut self) {
+            self.dispatched.push(Sequence::OpaqueEnd(OpaqueSequenceKind::Sos));
+        }
+
+        fn pm_start(&mut self) {
+            self.dispatched.push(Sequence::OpaqueStart(OpaqueSequenceKind::Pm));
+        }
+
+        fn pm_put(&mut self, byte: u8) {
+            self.dispatched.push(Sequence::OpaquePut(OpaqueSequenceKind::Pm, byte));
+        }
+
+        fn pm_end(&mut self) {
+            self.dispatched.push(Sequence::OpaqueEnd(OpaqueSequenceKind::Pm));
+        }
+
+        fn apc_start(&mut self) {
+            self.dispatched.push(Sequence::OpaqueStart(OpaqueSequenceKind::Apc));
+        }
+
+        fn apc_put(&mut self, byte: u8) {
+            self.dispatched.push(Sequence::OpaquePut(OpaqueSequenceKind::Apc, byte));
+        }
+
+        fn apc_end(&mut self) {
+            self.dispatched.push(Sequence::OpaqueEnd(OpaqueSequenceKind::Apc));
         }
     }
 
@@ -1521,6 +1569,103 @@ mod tests {
             },
             _ => panic!("expected osc sequence"),
         }
+    }
+
+    fn expect_opaque_sequence(
+        input: &[u8],
+        kind: OpaqueSequenceKind,
+        expected_payload: &[u8],
+        expected_trailer: &[Sequence],
+    ) {
+        let mut expected_dispatched: Vec<Sequence> = vec![Sequence::OpaqueStart(kind)];
+        for byte in expected_payload {
+            expected_dispatched.push(Sequence::OpaquePut(kind, *byte));
+        }
+        expected_dispatched.push(Sequence::OpaqueEnd(kind));
+        for item in expected_trailer {
+            expected_dispatched.push(item.clone());
+        }
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+        parser.advance(&mut dispatcher, input);
+
+        assert_eq!(dispatcher.dispatched, expected_dispatched);
+    }
+
+    #[test]
+    fn sos_c0_st_terminated() {
+        expect_opaque_sequence(
+            b"\x1bXTest\x20\xFF;xyz\x1b\\",
+            OpaqueSequenceKind::Sos,
+            b"Test\x20\xFF;xyz",
+            ST_ESC_SEQUENCE,
+        );
+    }
+
+    #[test]
+    fn sos_bell_terminated() {
+        expect_opaque_sequence(
+            b"\x1bXTest\x20\xFF;xyz\x07",
+            OpaqueSequenceKind::Sos,
+            b"Test\x20\xFF;xyz",
+            &[],
+        );
+    }
+
+    #[test]
+    fn sos_empty() {
+        expect_opaque_sequence(b"\x1bX\x1b\\", OpaqueSequenceKind::Sos, &[], ST_ESC_SEQUENCE);
+    }
+
+    #[test]
+    fn pm_c0_st_terminated() {
+        expect_opaque_sequence(
+            b"\x1b^Test\x20\xFF;xyz\x1b\\",
+            OpaqueSequenceKind::Pm,
+            b"Test\x20\xFF;xyz",
+            ST_ESC_SEQUENCE,
+        );
+    }
+
+    #[test]
+    fn pm_bell_terminated() {
+        expect_opaque_sequence(
+            b"\x1b^Test\x20\xFF;xyz\x07",
+            OpaqueSequenceKind::Pm,
+            b"Test\x20\xFF;xyz",
+            &[],
+        );
+    }
+
+    #[test]
+    fn pm_empty() {
+        expect_opaque_sequence(b"\x1b^\x1b\\", OpaqueSequenceKind::Pm, &[], ST_ESC_SEQUENCE);
+    }
+
+    #[test]
+    fn apc_c0_st_terminated() {
+        expect_opaque_sequence(
+            b"\x1b_Test\x20\xFF;xyz\x1b\\",
+            OpaqueSequenceKind::Apc,
+            b"Test\x20\xFF;xyz",
+            ST_ESC_SEQUENCE,
+        );
+    }
+
+    #[test]
+    fn apc_bell_terminated() {
+        expect_opaque_sequence(
+            b"\x1b_Test\x20\xFF;xyz\x07",
+            OpaqueSequenceKind::Apc,
+            b"Test\x20\xFF;xyz",
+            &[],
+        );
+    }
+
+    #[test]
+    fn apc_empty() {
+        expect_opaque_sequence(b"\x1b_\x1b\\", OpaqueSequenceKind::Apc, &[], ST_ESC_SEQUENCE);
     }
 
     #[test]
