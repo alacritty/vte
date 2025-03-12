@@ -359,10 +359,8 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.state = State::Ground
             },
             0x58 => {
-                self.state = {
-                    performer.sos_start();
-                    State::SosString
-                }
+                performer.sos_start();
+                self.state = State::SosString
             },
             0x59..=0x5A => {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
