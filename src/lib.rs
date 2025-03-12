@@ -864,36 +864,35 @@ pub trait Perform {
     /// encountered.
     fn sos_start(&mut self) {}
 
-    /// Invoked when the beginning of a new APC (Application Program Command)
-    /// sequence is encountered.
-    fn apc_start(&mut self) {}
+    /// Invoked for every valid byte (0x20-0xFF) in a SOS (Start of String)
+    /// sequence.
+    fn sos_put(&mut self, _byte: u8) {}
+
+    /// Invoked when the end of an SOS (Start of String) sequence is
+    /// encountered.
+    fn sos_end(&mut self) {}
 
     /// Invoked when the beginning of a new PM (Privacy Message) sequence is
     /// encountered.
     fn pm_start(&mut self) {}
 
-    /// Invoked for every valid character (0x20-0xFF) in a SOS (Start of String)
+    /// Invoked for every valid byte (0x20-0xFF) in a PM (Privacy Message)
     /// sequence.
-    fn sos_dispatch(&mut self, _byte: u8) {}
-
-    /// Invoked for every valid character (0x20-0xFF) in an APC (Application
-    /// Program Command) sequence.
-    fn apc_dispatch(&mut self, _byte: u8) {}
-
-    /// Invoked for every valid character (0x20-0xFF) in a PM (Privacy Message)
-    /// sequence.
-    fn pm_dispatch(&mut self, _byte: u8) {}
-
-    /// Invoked when the end of an SOS (Start of String) sequence is
-    /// encountered.
-    fn sos_string_end(&mut self) {}
-
-    /// Invoked when the end of an APC (Application Program Command) sequence is
-    /// encountered.
-    fn apc_string_end(&mut self) {}
+    fn pm_put(&mut self, _byte: u8) {}
 
     /// Invoked when the end of a PM (Privacy Message) sequence is encountered.
-    fn pm_string_end(&mut self) {}
+    fn pm_end(&mut self) {}
+
+    /// Invoked when the beginning of a new APC (Application Program Command)
+    /// sequence is encountered.
+    fn apc_start(&mut self) {}
+
+    /// Invoked for every valid byte (0x20-0xFF) in an APC (Application Program
+    /// Command) sequence.
+    fn apc_put(&mut self, _byte: u8) {}
+    /// Invoked when the end of an APC (Application Program Command) sequence is
+    /// encountered.
+    fn apc_end(&mut self) {}
 
     /// Whether the parser should terminate prematurely.
     ///
@@ -925,12 +924,12 @@ impl<P: Perform> OpaqueDispatch for SosDispatch<'_, P> {
 
     #[inline(always)]
     fn opaque_put(&mut self, byte: u8) {
-        self.0.sos_dispatch(byte);
+        self.0.sos_put(byte);
     }
 
     #[inline(always)]
     fn opaque_end(&mut self) {
-        self.0.sos_string_end();
+        self.0.sos_end();
     }
 }
 
@@ -944,12 +943,12 @@ impl<P: Perform> OpaqueDispatch for ApcDispatch<'_, P> {
 
     #[inline(always)]
     fn opaque_put(&mut self, byte: u8) {
-        self.0.apc_dispatch(byte);
+        self.0.apc_put(byte);
     }
 
     #[inline(always)]
     fn opaque_end(&mut self) {
-        self.0.apc_string_end();
+        self.0.apc_end();
     }
 }
 
@@ -963,12 +962,12 @@ impl<P: Perform> OpaqueDispatch for PmDispatch<'_, P> {
 
     #[inline(always)]
     fn opaque_put(&mut self, byte: u8) {
-        self.0.pm_dispatch(byte);
+        self.0.pm_put(byte);
     }
 
     #[inline(always)]
     fn opaque_end(&mut self) {
-        self.0.pm_string_end();
+        self.0.pm_end();
     }
 }
 
