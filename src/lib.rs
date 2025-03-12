@@ -450,33 +450,20 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     fn advance_opaque_string<D: OpaqueDispatch>(&mut self, mut dispatcher: D, byte: u8) {
         match byte {
             0x07 => {
-                // The standard only supports ST-terminated SOS/APC/PM strings, using either
-                // ESC-ST (ESC-\) and C1-ST (0x9C), but kitty (and probably some other
-                // terminals) also support bell-terminated strings. Some
-                // terminals (including Kitty), do not support C1-ST (0x9C) as a
-                // terminator, which means every character from 0x20-0xFF can be
-                // used with this sequence in theory.
                 dispatcher.opaque_end();
                 self.state = State::Ground
             },
             0x18 | 0x1A => {
-                // XTerm terminates SOS/APC/PM strings on C1 CAN (^X) and SUB (^Z). This is also
-                // the same behavior we implement for OSC strings.
                 dispatcher.opaque_end();
                 dispatcher.execute(byte);
                 self.state = State::Ground
             },
             0x1B => {
-                // Any escape code ends the SOS/APC/PM string. This is not standard behavior,
-                // but avoids having to keep additional state.
                 dispatcher.opaque_end();
                 self.state = State::Escape
             },
-            0x20..=0xFF => {
-                // Only dispatch valid characters.
-                dispatcher.opaque_put(byte)
-            },
-            // Ignore all other control codes
+            0x20..=0xFF => dispatcher.opaque_put(byte),
+            // Ignore all other control bytes.
             _ => (),
         }
     }
@@ -908,6 +895,10 @@ pub trait Perform {
     }
 }
 
+/// This trait is used internally to provide a common implementation for Opaque
+/// Sequences (SOS, APC, PM). Implementations of this trait will just forward
+/// calls to the equivalent method on [Perform]. Implementations of this trait
+/// are always inlined to avoid overhead.
 trait OpaqueDispatch {
     fn execute(&mut self, byte: u8);
     fn opaque_put(&mut self, byte: u8);
