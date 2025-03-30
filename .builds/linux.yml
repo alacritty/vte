@@ -24,6 +24,6 @@ tasks:
       rm Cargo.lock
       $HOME/.cargo/bin/cargo +$msrv test
   - rustdoc: |
-      $HOME/.cargo/bin/rustup toolchain install nightly -c rustdoc
+      $HOME/.cargo/bin/rustup toolchain install nightly -c rust-docs
       cd vte
       RUSTDOCFLAGS="--cfg docsrs -Dwarnings" $HOME/.cargo/bin/cargo +nightly doc --features=ansi --no-deps
