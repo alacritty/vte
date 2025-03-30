@@ -28,6 +28,7 @@
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
 #![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use)]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 use core::mem::MaybeUninit;
 use core::str;
@@ -38,6 +39,7 @@ use arrayvec::ArrayVec;
 mod params;
 
 #[cfg(feature = "ansi")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ansi")))]
 pub mod ansi;
 pub use params::{Params, ParamsIter};
 
