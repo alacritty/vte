@@ -136,7 +136,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     ///
     /// Returns the number of bytes read before termination.
     ///
-    /// See [`Perform::advance`] for more details.
+    /// See [`Self::advance`] for more details.
     #[inline]
     #[must_use = "Returned value should be used to processs the remaining bytes"]
     pub fn advance_until_terminated<P: Perform>(
