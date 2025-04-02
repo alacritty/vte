@@ -142,3 +142,39 @@ impl Debug for Params {
         write!(f, "]")
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn sub_parameters() {
+        let mut p = super::Params::default();
+
+        p.extend(38);
+        p.extend(2);
+        p.extend(255);
+        p.extend(0);
+        p.push(255);
+        p.push(1);
+        p.push(4);
+
+        let expect: Vec<Vec<u16>> = p.iter().map(|subparam| subparam.to_vec()).collect();
+        assert_eq!(&expect, &[vec![38, 2, 255, 0, 255], vec![1], vec![4]]);
+        assert_eq!(format!("{:?}", &p), "[38:2:255:0:255;1;4]");
+
+        p.clear();
+
+        // reverse sub_parameters
+        p.push(1);
+        p.push(4);
+        p.extend(38);
+        p.extend(2);
+        p.extend(255);
+        p.extend(0);
+        p.push(255);
+
+        let expect: Vec<Vec<u16>> = p.iter().map(|subparam| subparam.to_vec()).collect();
+        assert_eq!(&expect, &[vec![1], vec![4], vec![38, 2, 255, 0, 255]]);
+        assert_eq!(format!("{:?}", &p), "[1;4;38:2:255:0:255]");
+    }
+}
