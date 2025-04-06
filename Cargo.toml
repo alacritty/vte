@@ -28,5 +28,5 @@ memchr = { version = "2.7.4", default-features = false }
 serde = { version = "1.0.160", features = ["derive"], optional = true }
 
 [package.metadata.docs.rs]
-features = ["ansi"]
+all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
