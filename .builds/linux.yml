@@ -23,3 +23,7 @@ tasks:
       $HOME/.cargo/bin/rustup toolchain install --profile minimal $msrv
       rm Cargo.lock
       $HOME/.cargo/bin/cargo +$msrv test
+  - rustdoc: |
+      $HOME/.cargo/bin/rustup toolchain install nightly -c rust-docs
+      cd vte
+      RUSTDOCFLAGS="--cfg docsrs -Dwarnings" $HOME/.cargo/bin/cargo +nightly doc --all-features --no-deps

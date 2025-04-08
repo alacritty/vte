@@ -26,3 +26,7 @@ cursor-icon = { version = "1.0.0", default-features = false, optional = true }
 log = { version = "0.4.17", optional = true }
 memchr = { version = "2.7.4", default-features = false }
 serde = { version = "1.0.160", features = ["derive"], optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

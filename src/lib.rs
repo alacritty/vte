@@ -28,6 +28,7 @@
 //! [Paul Williams' ANSI parser state machine]: https://vt100.net/emu/dec_ansi_parser
 #![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use)]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 use core::mem::MaybeUninit;
 use core::str;
@@ -134,7 +135,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     ///
     /// Returns the number of bytes read before termination.
     ///
-    /// See [`Perform::advance`] for more details.
+    /// See [`Self::advance`] for more details.
     #[inline]
     #[must_use = "Returned value should be used to processs the remaining bytes"]
     pub fn advance_until_terminated<P: Perform>(
