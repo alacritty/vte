@@ -26,4 +26,4 @@ tasks:
   - rustdoc: |
       $HOME/.cargo/bin/rustup toolchain install nightly -c rust-docs
       cd vte
-      RUSTDOCFLAGS="--cfg docsrs -Dwarnings" $HOME/.cargo/bin/cargo +nightly doc --features=ansi --no-deps
+      RUSTDOCFLAGS="--cfg docsrs -Dwarnings" $HOME/.cargo/bin/cargo +nightly doc --all-features --no-deps
