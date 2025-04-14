@@ -180,7 +180,9 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             State::Escape => self.advance_esc(performer, byte),
             State::EscapeIntermediate => self.advance_esc_intermediate(performer, byte),
             State::OscString => self.advance_osc_string(performer, byte),
-            State::SosPmApcString => self.anywhere(performer, byte),
+            State::SosString => self.advance_opaque_string(SosDispatch(performer), byte),
+            State::ApcString => self.advance_opaque_string(ApcDispatch(performer), byte),
+            State::PmString => self.advance_opaque_string(PmDispatch(performer), byte),
             State::Ground => unreachable!(),
         }
     }
@@ -357,7 +359,10 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
                 self.state = State::Ground
             },
-            0x58 => self.state = State::SosPmApcString,
+            0x58 => {
+                performer.sos_start();
+                self.state = State::SosString
+            },
             0x59..=0x5A => {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
                 self.state = State::Ground
@@ -375,7 +380,14 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.osc_num_params = 0;
                 self.state = State::OscString
             },
-            0x5E..=0x5F => self.state = State::SosPmApcString,
+            0x5E => {
+                performer.pm_start();
+                self.state = State::PmString
+            },
+            0x5F => {
+                performer.apc_start();
+                self.state = State::ApcString
+            },
             0x60..=0x7E => {
                 performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
                 self.state = State::Ground
@@ -432,6 +444,28 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.action_osc_put_param()
             },
             _ => self.action_osc_put(byte),
+        }
+    }
+
+    #[inline(always)]
+    fn advance_opaque_string<D: OpaqueDispatch>(&mut self, mut dispatcher: D, byte: u8) {
+        match byte {
+            0x07 => {
+                dispatcher.opaque_end();
+                self.state = State::Ground
+            },
+            0x18 | 0x1A => {
+                dispatcher.opaque_end();
+                dispatcher.execute(byte);
+                self.state = State::Ground
+            },
+            0x1B => {
+                dispatcher.opaque_end();
+                self.state = State::Escape
+            },
+            0x20..=0xFF => dispatcher.opaque_put(byte),
+            // Ignore all other control bytes.
+            _ => (),
         }
     }
 
@@ -744,7 +778,9 @@ enum State {
     Escape,
     EscapeIntermediate,
     OscString,
-    SosPmApcString,
+    SosString,
+    ApcString,
+    PmString,
     #[default]
     Ground,
 }
@@ -812,6 +848,40 @@ pub trait Perform {
     /// subsequent characters were ignored.
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
 
+    /// Invoked when the beginning of a new SOS (Start of String) sequence is
+    /// encountered.
+    fn sos_start(&mut self) {}
+
+    /// Invoked for every valid byte (0x20-0xFF) in a SOS (Start of String)
+    /// sequence.
+    fn sos_put(&mut self, _byte: u8) {}
+
+    /// Invoked when the end of an SOS (Start of String) sequence is
+    /// encountered.
+    fn sos_end(&mut self) {}
+
+    /// Invoked when the beginning of a new PM (Privacy Message) sequence is
+    /// encountered.
+    fn pm_start(&mut self) {}
+
+    /// Invoked for every valid byte (0x20-0xFF) in a PM (Privacy Message)
+    /// sequence.
+    fn pm_put(&mut self, _byte: u8) {}
+
+    /// Invoked when the end of a PM (Privacy Message) sequence is encountered.
+    fn pm_end(&mut self) {}
+
+    /// Invoked when the beginning of a new APC (Application Program Command)
+    /// sequence is encountered.
+    fn apc_start(&mut self) {}
+
+    /// Invoked for every valid byte (0x20-0xFF) in an APC (Application Program
+    /// Command) sequence.
+    fn apc_put(&mut self, _byte: u8) {}
+    /// Invoked when the end of an APC (Application Program Command) sequence is
+    /// encountered.
+    fn apc_end(&mut self) {}
+
     /// Whether the parser should terminate prematurely.
     ///
     /// This can be used in conjunction with
@@ -823,6 +893,73 @@ pub trait Perform {
     #[inline(always)]
     fn terminated(&self) -> bool {
         false
+    }
+}
+
+/// This trait is used internally to provide a common implementation for Opaque
+/// Sequences (SOS, APC, PM). Implementations of this trait will just forward
+/// calls to the equivalent method on [Perform]. Implementations of this trait
+/// are always inlined to avoid overhead.
+trait OpaqueDispatch {
+    fn execute(&mut self, byte: u8);
+    fn opaque_put(&mut self, byte: u8);
+    fn opaque_end(&mut self);
+}
+
+struct SosDispatch<'a, P: Perform>(&'a mut P);
+
+impl<P: Perform> OpaqueDispatch for SosDispatch<'_, P> {
+    #[inline(always)]
+    fn execute(&mut self, byte: u8) {
+        self.0.execute(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_put(&mut self, byte: u8) {
+        self.0.sos_put(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_end(&mut self) {
+        self.0.sos_end();
+    }
+}
+
+struct ApcDispatch<'a, P: Perform>(&'a mut P);
+
+impl<P: Perform> OpaqueDispatch for ApcDispatch<'_, P> {
+    #[inline(always)]
+    fn execute(&mut self, byte: u8) {
+        self.0.execute(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_put(&mut self, byte: u8) {
+        self.0.apc_put(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_end(&mut self) {
+        self.0.apc_end();
+    }
+}
+
+struct PmDispatch<'a, P: Perform>(&'a mut P);
+
+impl<P: Perform> OpaqueDispatch for PmDispatch<'_, P> {
+    #[inline(always)]
+    fn execute(&mut self, byte: u8) {
+        self.0.execute(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_put(&mut self, byte: u8) {
+        self.0.pm_put(byte);
+    }
+
+    #[inline(always)]
+    fn opaque_end(&mut self) {
+        self.0.pm_end();
     }
 }
 
@@ -843,12 +980,21 @@ mod tests {
         b'c', b'r', b'i', b't', b't', b'y', 0x07, // End OSC
     ];
 
+    const ST_ESC_SEQUENCE: &[Sequence] = &[Sequence::Esc(vec![], false, 0x5C)];
+
     #[derive(Default)]
     struct Dispatcher {
         dispatched: Vec<Sequence>,
     }
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    enum OpaqueSequenceKind {
+        Sos,
+        Pm,
+        Apc,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
     enum Sequence {
         Osc(Vec<Vec<u8>>, bool),
         Csi(Vec<Vec<u16>>, Vec<u8>, bool, char),
@@ -857,6 +1003,9 @@ mod tests {
         DcsPut(u8),
         Print(char),
         Execute(u8),
+        OpaqueStart(OpaqueSequenceKind),
+        OpaquePut(OpaqueSequenceKind, u8),
+        OpaqueEnd(OpaqueSequenceKind),
         DcsUnhook,
     }
 
@@ -897,6 +1046,42 @@ mod tests {
 
         fn execute(&mut self, byte: u8) {
             self.dispatched.push(Sequence::Execute(byte));
+        }
+
+        fn sos_start(&mut self) {
+            self.dispatched.push(Sequence::OpaqueStart(OpaqueSequenceKind::Sos));
+        }
+
+        fn sos_put(&mut self, byte: u8) {
+            self.dispatched.push(Sequence::OpaquePut(OpaqueSequenceKind::Sos, byte));
+        }
+
+        fn sos_end(&mut self) {
+            self.dispatched.push(Sequence::OpaqueEnd(OpaqueSequenceKind::Sos));
+        }
+
+        fn pm_start(&mut self) {
+            self.dispatched.push(Sequence::OpaqueStart(OpaqueSequenceKind::Pm));
+        }
+
+        fn pm_put(&mut self, byte: u8) {
+            self.dispatched.push(Sequence::OpaquePut(OpaqueSequenceKind::Pm, byte));
+        }
+
+        fn pm_end(&mut self) {
+            self.dispatched.push(Sequence::OpaqueEnd(OpaqueSequenceKind::Pm));
+        }
+
+        fn apc_start(&mut self) {
+            self.dispatched.push(Sequence::OpaqueStart(OpaqueSequenceKind::Apc));
+        }
+
+        fn apc_put(&mut self, byte: u8) {
+            self.dispatched.push(Sequence::OpaquePut(OpaqueSequenceKind::Apc, byte));
+        }
+
+        fn apc_end(&mut self) {
+            self.dispatched.push(Sequence::OpaqueEnd(OpaqueSequenceKind::Apc));
         }
     }
 
@@ -1385,6 +1570,103 @@ mod tests {
             },
             _ => panic!("expected osc sequence"),
         }
+    }
+
+    fn expect_opaque_sequence(
+        input: &[u8],
+        kind: OpaqueSequenceKind,
+        expected_payload: &[u8],
+        expected_trailer: &[Sequence],
+    ) {
+        let mut expected_dispatched: Vec<Sequence> = vec![Sequence::OpaqueStart(kind)];
+        for byte in expected_payload {
+            expected_dispatched.push(Sequence::OpaquePut(kind, *byte));
+        }
+        expected_dispatched.push(Sequence::OpaqueEnd(kind));
+        for item in expected_trailer {
+            expected_dispatched.push(item.clone());
+        }
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+        parser.advance(&mut dispatcher, input);
+
+        assert_eq!(dispatcher.dispatched, expected_dispatched);
+    }
+
+    #[test]
+    fn sos_c0_st_terminated() {
+        expect_opaque_sequence(
+            b"\x1bXTest\x20\xFF;xyz\x1b\\",
+            OpaqueSequenceKind::Sos,
+            b"Test\x20\xFF;xyz",
+            ST_ESC_SEQUENCE,
+        );
+    }
+
+    #[test]
+    fn sos_bell_terminated() {
+        expect_opaque_sequence(
+            b"\x1bXTest\x20\xFF;xyz\x07",
+            OpaqueSequenceKind::Sos,
+            b"Test\x20\xFF;xyz",
+            &[],
+        );
+    }
+
+    #[test]
+    fn sos_empty() {
+        expect_opaque_sequence(b"\x1bX\x1b\\", OpaqueSequenceKind::Sos, &[], ST_ESC_SEQUENCE);
+    }
+
+    #[test]
+    fn pm_c0_st_terminated() {
+        expect_opaque_sequence(
+            b"\x1b^Test\x20\xFF;xyz\x1b\\",
+            OpaqueSequenceKind::Pm,
+            b"Test\x20\xFF;xyz",
+            ST_ESC_SEQUENCE,
+        );
+    }
+
+    #[test]
+    fn pm_bell_terminated() {
+        expect_opaque_sequence(
+            b"\x1b^Test\x20\xFF;xyz\x07",
+            OpaqueSequenceKind::Pm,
+            b"Test\x20\xFF;xyz",
+            &[],
+        );
+    }
+
+    #[test]
+    fn pm_empty() {
+        expect_opaque_sequence(b"\x1b^\x1b\\", OpaqueSequenceKind::Pm, &[], ST_ESC_SEQUENCE);
+    }
+
+    #[test]
+    fn apc_c0_st_terminated() {
+        expect_opaque_sequence(
+            b"\x1b_Test\x20\xFF;xyz\x1b\\",
+            OpaqueSequenceKind::Apc,
+            b"Test\x20\xFF;xyz",
+            ST_ESC_SEQUENCE,
+        );
+    }
+
+    #[test]
+    fn apc_bell_terminated() {
+        expect_opaque_sequence(
+            b"\x1b_Test\x20\xFF;xyz\x07",
+            OpaqueSequenceKind::Apc,
+            b"Test\x20\xFF;xyz",
+            &[],
+        );
+    }
+
+    #[test]
+    fn apc_empty() {
+        expect_opaque_sequence(b"\x1b_\x1b\\", OpaqueSequenceKind::Apc, &[], ST_ESC_SEQUENCE);
     }
 
     #[test]
