@@ -4,7 +4,7 @@ use core::fmt::{self, Debug, Formatter};
 
 pub(crate) const MAX_PARAMS: usize = 32;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Params {
     /// Number of subparameters for each parameter.
     ///
