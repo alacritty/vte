@@ -12,6 +12,7 @@ version = "0.15.0"
 name = "vte"
 edition = "2021"
 rust-version = "1.62.1"
+include = ["README.md", "LICENSE-APACHE", "LICENSE-MIT", "Cargo.toml", "src/**/*.rs"]
 
 [features]
 ansi = ["log", "cursor-icon", "bitflags"]
