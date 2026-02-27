@@ -39,6 +39,7 @@ use arrayvec::ArrayVec;
 mod params;
 
 #[cfg(feature = "ansi")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ansi")))]
 pub mod ansi;
 pub use params::{Params, ParamsIter};
 
