@@ -239,6 +239,63 @@ fn parse_number(input: &[u8]) -> Option<u8> {
     Some(num)
 }
 
+/// Hex-encode a byte slice as uppercase hex characters.
+pub fn hex_encode(input: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut result = String::with_capacity(input.len() * 2);
+    for &b in input {
+        result.push(HEX[(b >> 4) as usize] as char);
+        result.push(HEX[(b & 0xF) as usize] as char);
+    }
+    result
+}
+
+/// Decode a hex nibble.
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Decode a hex-encoded byte string.
+pub fn hex_decode(input: &[u8]) -> Option<Vec<u8>> {
+    if input.len() % 2 != 0 {
+        return None;
+    }
+    let mut result = Vec::with_capacity(input.len() / 2);
+    for chunk in input.chunks(2) {
+        let high = hex_nibble(chunk[0])?;
+        let low = hex_nibble(chunk[1])?;
+        result.push((high << 4) | low);
+    }
+    Some(result)
+}
+
+/// Decode hex in-place, returning the decoded length.
+fn hex_decode_in_place(buf: &mut [u8]) -> Option<usize> {
+    let len = buf.len();
+    if len % 2 != 0 {
+        return None;
+    }
+    let decoded_len = len / 2;
+    for i in 0..decoded_len {
+        let high = hex_nibble(buf[i * 2])?;
+        let low = hex_nibble(buf[i * 2 + 1])?;
+        buf[i] = (high << 4) | low;
+    }
+    Some(decoded_len)
+}
+
+/// Active DCS handler tracking.
+#[derive(Debug)]
+enum DcsHandler {
+    /// XTGETTCAP - query terminfo capabilities.
+    Xtgettcap,
+}
+
 /// Internal state for VTE processor.
 #[derive(Debug, Default)]
 struct ProcessorState<T: Timeout> {
@@ -247,6 +304,12 @@ struct ProcessorState<T: Timeout> {
 
     /// State for synchronized terminal updates.
     sync_state: SyncState<T>,
+
+    /// Active DCS handler.
+    dcs_handler: Option<DcsHandler>,
+
+    /// Buffer for DCS data, reused across sequences.
+    dcs_buffer: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -729,6 +792,11 @@ pub trait Handler {
 
     // Set SCP control.
     fn set_scp(&mut self, _char_path: ScpCharPath, _update_mode: ScpUpdateMode) {}
+
+    /// XTGETTCAP - report terminfo capability.
+    ///
+    /// The `name` is the decoded capability name.
+    fn xtgettcap(&mut self, _name: &[u8]) {}
 }
 
 bitflags! {
@@ -1309,6 +1377,12 @@ where
 
     #[inline]
     fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        if !ignore && intermediates == [b'+'] && action == 'q' {
+            self.state.dcs_buffer.clear();
+            self.state.dcs_handler = Some(DcsHandler::Xtgettcap);
+            return;
+        }
+
         debug!(
             "[unhandled hook] params={:?}, ints: {:?}, ignore: {:?}, action: {:?}",
             params, intermediates, ignore, action
@@ -1317,12 +1391,34 @@ where
 
     #[inline]
     fn put(&mut self, byte: u8) {
-        debug!("[unhandled put] byte={:?}", byte);
+        match self.state.dcs_handler {
+            Some(DcsHandler::Xtgettcap) => self.state.dcs_buffer.push(byte),
+            None => debug!("[unhandled put] byte={:?}", byte),
+        }
     }
 
     #[inline]
     fn unhook(&mut self) {
-        debug!("[unhandled unhook]");
+        match self.state.dcs_handler.take() {
+            Some(DcsHandler::Xtgettcap) => {
+                let mut buf = mem::take(&mut self.state.dcs_buffer);
+                let len = buf.len();
+                let mut start = 0;
+                for i in 0..=len {
+                    if i == len || buf[i] == b';' {
+                        if start < i {
+                            if let Some(decoded_len) = hex_decode_in_place(&mut buf[start..i]) {
+                                self.handler.xtgettcap(&buf[start..start + decoded_len]);
+                            }
+                        }
+                        start = i + 1;
+                    }
+                }
+                buf.clear();
+                self.state.dcs_buffer = buf;
+            },
+            None => debug!("[unhandled unhook]"),
+        }
     }
 
     #[inline]
@@ -2046,6 +2142,7 @@ mod tests {
         identity_reported: bool,
         color: Option<Rgb>,
         reset_colors: Vec<usize>,
+        xtgettcap_names: Vec<Vec<u8>>,
     }
 
     impl Handler for MockHandler {
@@ -2077,6 +2174,10 @@ mod tests {
         fn reset_color(&mut self, index: usize) {
             self.reset_colors.push(index)
         }
+
+        fn xtgettcap(&mut self, name: &[u8]) {
+            self.xtgettcap_names.push(name.to_vec());
+        }
     }
 
     impl Default for MockHandler {
@@ -2088,6 +2189,7 @@ mod tests {
                 identity_reported: false,
                 color: None,
                 reset_colors: Vec::new(),
+                xtgettcap_names: Vec::new(),
             }
         }
     }
@@ -2454,5 +2556,139 @@ mod tests {
         let rgb1 = Rgb { r: 0x12, g: 0x34, b: 0x56 };
         let rgb2 = Rgb { r: 0xFE, g: 0xDC, b: 0xBA };
         assert!((rgb1.contrast(rgb2) - 9.786_558_997_257_74).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn hex_encode_decode_roundtrip() {
+        assert_eq!(hex_encode(b"name"), "6E616D65");
+        assert_eq!(hex_encode(b"TN"), "544E");
+        assert_eq!(hex_encode(b""), "");
+        assert_eq!(hex_decode(b"6E616D65").unwrap(), b"name");
+        assert_eq!(hex_decode(b"544E").unwrap(), b"TN");
+        assert_eq!(hex_decode(b"").unwrap(), b"");
+
+        // Case insensitive decode.
+        assert_eq!(hex_decode(b"6e616d65").unwrap(), b"name");
+
+        // Invalid hex.
+        assert!(hex_decode(b"ZZ").is_none());
+        assert!(hex_decode(b"6E6").is_none());
+    }
+
+    #[test]
+    fn parse_xtgettcap_single() {
+        // DCS + q 6E616D65 ST  ->  query "name".
+        let bytes: &[u8] = b"\x1bP+q6E616D65\x1b\\";
+
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, bytes);
+
+        assert_eq!(handler.xtgettcap_names, vec![b"name"]);
+    }
+
+    #[test]
+    fn parse_xtgettcap_multiple() {
+        // DCS + q 544E;436F ST  ->  query "TN" and "Co".
+        let bytes: &[u8] = b"\x1bP+q544E;436F\x1b\\";
+
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, bytes);
+
+        assert_eq!(handler.xtgettcap_names, vec![b"TN", b"Co"]);
+    }
+
+    #[test]
+    fn parse_xtgettcap_invalid_hex() {
+        // DCS + q ZZZZ ST  ->  invalid hex, no handler call.
+        let bytes: &[u8] = b"\x1bP+qZZZZ\x1b\\";
+
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, bytes);
+
+        assert!(handler.xtgettcap_names.is_empty());
+    }
+
+    #[test]
+    fn parse_xtgettcap_empty() {
+        // DCS + q ST  ->  empty body, no handler call.
+        let bytes: &[u8] = b"\x1bP+q\x1b\\";
+
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, bytes);
+
+        assert!(handler.xtgettcap_names.is_empty());
+    }
+
+    #[test]
+    fn parse_xtgettcap_trailing_semicolon() {
+        // DCS + q 544E; ST  ->  trailing semicolon, only one handler call.
+        let bytes: &[u8] = b"\x1bP+q544E;\x1b\\";
+
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, bytes);
+
+        assert_eq!(handler.xtgettcap_names, vec![b"TN"]);
+    }
+
+    #[test]
+    fn parse_xtgettcap_with_ignore() {
+        // DCS with more than two intermediates sets ignore flag.
+        let bytes: &[u8] = b"\x1bP+++q6E616D65\x1b\\";
+
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, bytes);
+
+        assert!(handler.xtgettcap_names.is_empty());
+    }
+
+    #[test]
+    fn parse_xtgettcap_c1_st() {
+        // DCS + q 544E terminated by C1 ST (0x9C) instead of ESC \.
+        let bytes: &[u8] = b"\x1bP+q544E\x9c";
+
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, bytes);
+
+        assert_eq!(handler.xtgettcap_names, vec![b"TN"]);
+    }
+
+    #[test]
+    fn parse_xtgettcap_split_advance() {
+        // DCS sequence split across two advance() calls.
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, b"\x1bP+q544E;43");
+        assert!(handler.xtgettcap_names.is_empty());
+
+        parser.advance(&mut handler, b"6F\x1b\\");
+        assert_eq!(handler.xtgettcap_names, vec![b"TN", b"Co"]);
+    }
+
+    #[test]
+    fn parse_xtgettcap_mixed_valid_invalid() {
+        // Valid, invalid (odd-length), valid queries — invalid one is skipped.
+        let bytes: &[u8] = b"\x1bP+q544E;5A5;436F\x1b\\";
+
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, bytes);
+
+        assert_eq!(handler.xtgettcap_names, vec![b"TN", b"Co"]);
     }
 }
