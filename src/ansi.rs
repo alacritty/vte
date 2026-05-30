@@ -247,6 +247,10 @@ struct ProcessorState<T: Timeout> {
 
     /// State for synchronized terminal updates.
     sync_state: SyncState<T>,
+
+    /// Set on `command_start` or `command_executed` and cleared on
+    /// `command_finished`. Used to ignore `command_finished` when not set.
+    command_started: bool,
 }
 
 #[derive(Debug)]
@@ -699,6 +703,18 @@ pub trait Handler {
 
     /// Set hyperlink.
     fn set_hyperlink(&mut self, _: Option<Hyperlink>) {}
+
+    /// Mark the start of the prompt.
+    fn prompt_start(&mut self) {}
+
+    /// Mark the start of the command the user types, after the prompt.
+    fn command_start(&mut self) {}
+
+    /// Mark that the command was executed and its output begins.
+    fn command_executed(&mut self) {}
+
+    /// Mark that the command finished, with its exit status when known.
+    fn command_finished(&mut self, _: Option<u8>) {}
 
     /// Set mouse cursor icon.
     fn set_mouse_cursor_icon(&mut self, _: CursorIcon) {}
@@ -1520,6 +1536,33 @@ where
             // Reset text cursor color.
             b"112" => self.handler.reset_color(NamedColor::Cursor as usize),
 
+            // Prompt and command markers.
+            b"133" => {
+                if params.len() < 2 {
+                    return unhandled(params);
+                }
+                match params[1] {
+                    b"A" => self.handler.prompt_start(),
+                    b"B" => {
+                        self.state.command_started = true;
+                        self.handler.command_start();
+                    },
+                    b"C" => {
+                        self.state.command_started = true;
+                        self.handler.command_executed();
+                    },
+                    b"D" => {
+                        if self.state.command_started {
+                            self.state.command_started = false;
+                            let exit_code =
+                                params.get(2).and_then(|p| str::from_utf8(p).ok()?.parse().ok());
+                            self.handler.command_finished(exit_code);
+                        }
+                    },
+                    _ => unhandled(params),
+                }
+            },
+
             _ => unhandled(params),
         }
     }
@@ -2046,6 +2089,15 @@ mod tests {
         identity_reported: bool,
         color: Option<Rgb>,
         reset_colors: Vec<usize>,
+        prompt_events: Vec<PromptEvent>,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum PromptEvent {
+        PromptStart,
+        CommandStart,
+        CommandExecuted,
+        CommandFinished(Option<u8>),
     }
 
     impl Handler for MockHandler {
@@ -2077,6 +2129,22 @@ mod tests {
         fn reset_color(&mut self, index: usize) {
             self.reset_colors.push(index)
         }
+
+        fn prompt_start(&mut self) {
+            self.prompt_events.push(PromptEvent::PromptStart);
+        }
+
+        fn command_start(&mut self) {
+            self.prompt_events.push(PromptEvent::CommandStart);
+        }
+
+        fn command_executed(&mut self) {
+            self.prompt_events.push(PromptEvent::CommandExecuted);
+        }
+
+        fn command_finished(&mut self, exit_code: Option<u8>) {
+            self.prompt_events.push(PromptEvent::CommandFinished(exit_code));
+        }
     }
 
     impl Default for MockHandler {
@@ -2088,6 +2156,7 @@ mod tests {
                 identity_reported: false,
                 color: None,
                 reset_colors: Vec::new(),
+                prompt_events: Vec::new(),
             }
         }
     }
@@ -2168,6 +2237,95 @@ mod tests {
         let spec = Rgb { r: 128, g: 66, b: 255 };
 
         assert_eq!(handler.attr, Some(Attr::Foreground(Color::Spec(spec))));
+    }
+
+    #[test]
+    fn osc_133_prompt_markers() {
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, b"\x1b]133;A\x07");
+        parser.advance(&mut handler, b"\x1b]133;B\x07");
+        parser.advance(&mut handler, b"\x1b]133;C\x07");
+        parser.advance(&mut handler, b"\x1b]133;D\x07");
+
+        assert_eq!(
+            handler.prompt_events,
+            vec![
+                PromptEvent::PromptStart,
+                PromptEvent::CommandStart,
+                PromptEvent::CommandExecuted,
+                PromptEvent::CommandFinished(None),
+            ]
+        );
+    }
+
+    #[test]
+    fn osc_133_command_end_exit_code() {
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, b"\x1b]133;C\x07");
+        parser.advance(&mut handler, b"\x1b]133;D;0\x07");
+        parser.advance(&mut handler, b"\x1b]133;C\x07");
+        parser.advance(&mut handler, b"\x1b]133;D;130\x07");
+
+        assert_eq!(
+            handler.prompt_events,
+            vec![
+                PromptEvent::CommandExecuted,
+                PromptEvent::CommandFinished(Some(0)),
+                PromptEvent::CommandExecuted,
+                PromptEvent::CommandFinished(Some(130)),
+            ]
+        );
+    }
+
+    #[test]
+    fn osc_133_command_finished_without_command_ignored() {
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        // `prompt_start` does not begin a command, so `command_finished` has
+        // no preceding `command_start` or `command_executed`.
+        parser.advance(&mut handler, b"\x1b]133;A\x07");
+        parser.advance(&mut handler, b"\x1b]133;D;0\x07");
+
+        // This next `command_finished` is paired with a `command_start`, and
+        // the final `command_finished` with no new command start is ignored.
+        parser.advance(&mut handler, b"\x1b]133;B\x07");
+        parser.advance(&mut handler, b"\x1b]133;D\x07");
+        parser.advance(&mut handler, b"\x1b]133;D\x07");
+
+        assert_eq!(
+            handler.prompt_events,
+            vec![
+                PromptEvent::PromptStart,
+                PromptEvent::CommandStart,
+                PromptEvent::CommandFinished(None),
+            ]
+        );
+    }
+
+    #[test]
+    fn osc_133_st_terminated() {
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, b"\x1b]133;A\x1b\\");
+
+        assert_eq!(handler.prompt_events, vec![PromptEvent::PromptStart]);
+    }
+
+    #[test]
+    fn osc_133_unknown_subcommand_ignored() {
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+
+        parser.advance(&mut handler, b"\x1b]133\x07");
+        parser.advance(&mut handler, b"\x1b]133;Z\x07");
+
+        assert!(handler.prompt_events.is_empty());
     }
 
     /// No exactly a test; useful for debugging.
