@@ -1,6 +1,12 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Batch runs of printable characters into a single `Perform::print_str` dispatch
+  (and matching `ansi::Handler::input_run`); both have default implementations that
+  fall back to per-character `print`/`input`, so behaviour is unchanged unless overridden
+
 ## 0.15.0
 
 - Support `CSI ? 5 W` to reset tabs stops to every 8th column

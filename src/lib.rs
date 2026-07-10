@@ -79,6 +79,12 @@ impl Parser {
 }
 
 impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
+    /// Minimum length of a printable run before it is dispatched via the batched
+    /// [`Perform::print_str`] rather than one `print` call per character. Shorter
+    /// runs cannot amortize the batched path's setup, so they keep the original
+    /// per-character dispatch.
+    const BATCH_MIN: usize = 4;
+
     /// Create a new Parser with a custom size for the Operating System Command
     /// buffer.
     ///
@@ -720,12 +726,41 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     }
 
     /// Handle ground dispatch of print/execute for all characters in a string.
+    ///
+    /// Consecutive printable characters are grouped into a single `print_str`
+    /// call, flushing the pending run whenever a control character interrupts
+    /// it. Control characters are still dispatched individually via `execute`,
+    /// preserving the exact order of `print`/`execute` calls.
+    ///
+    /// Runs shorter than [`BATCH_MIN`](Self::BATCH_MIN) are dispatched exactly
+    /// as before — one `print` per character — so control- or newline-heavy
+    /// output (which produces many tiny runs) sees no added overhead from the
+    /// batching path.
     #[inline]
     fn ground_dispatch<P: Perform>(performer: &mut P, text: &str) {
+        let mut run_start = 0;
+        let mut idx = 0;
         for c in text.chars() {
-            match c {
-                '\x00'..='\x1f' | '\u{80}'..='\u{9f}' => performer.execute(c as u8),
-                _ => performer.print(c),
+            let len = c.len_utf8();
+            if matches!(c, '\x00'..='\x1f' | '\u{80}'..='\u{9f}') {
+                Self::flush_run(performer, &text[run_start..idx]);
+                performer.execute(c as u8);
+                run_start = idx + len;
+            }
+            idx += len;
+        }
+        Self::flush_run(performer, &text[run_start..]);
+    }
+
+    /// Dispatch one run of printable characters, batching only if it is long
+    /// enough to amortize the cost of the batched path.
+    #[inline]
+    fn flush_run<P: Perform>(performer: &mut P, run: &str) {
+        if run.len() >= Self::BATCH_MIN {
+            performer.print_str(run);
+        } else {
+            for c in run.chars() {
+                performer.print(c);
             }
         }
     }
@@ -763,6 +798,21 @@ enum State {
 pub trait Perform {
     /// Draw a character to the screen and update states.
     fn print(&mut self, _c: char) {}
+
+    /// Draw a run of characters to the screen and update states.
+    ///
+    /// This is a batched form of [`print`](Self::print): the parser passes an
+    /// entire run of consecutive printable characters (never containing control
+    /// characters) in one call. The default implementation forwards to `print`
+    /// one character at a time, so overriding it is optional and changes no
+    /// observable behavior; implementations that can write a whole run more
+    /// cheaply than one character at a time may override it.
+    #[inline]
+    fn print_str(&mut self, s: &str) {
+        for c in s.chars() {
+            self.print(c);
+        }
+    }
 
     /// Execute a C0 or C1 control function.
     fn execute(&mut self, _byte: u8) {}

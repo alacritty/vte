@@ -505,6 +505,19 @@ pub trait Handler {
     /// A character to be displayed.
     fn input(&mut self, _c: char) {}
 
+    /// A run of characters to be displayed.
+    ///
+    /// Batched form of [`input`](Self::input): the parser passes an entire run
+    /// of consecutive printable characters (never containing control
+    /// characters) in one call. The default implementation forwards to `input`
+    /// one character at a time, so overriding it is optional and changes no
+    /// observable behavior.
+    fn input_run(&mut self, text: &str) {
+        for c in text.chars() {
+            self.input(c);
+        }
+    }
+
     /// Set cursor to position.
     fn goto(&mut self, _line: i32, _col: usize) {}
 
@@ -1290,6 +1303,15 @@ where
     fn print(&mut self, c: char) {
         self.handler.input(c);
         self.state.preceding_char = Some(c);
+    }
+
+    #[inline]
+    fn print_str(&mut self, s: &str) {
+        self.handler.input_run(s);
+        // `preceding_char` (used by the REP control) must match what per-char
+        // `print` would leave behind: the last character of the run. The run is
+        // always non-empty when dispatched from the parser.
+        self.state.preceding_char = s.chars().next_back();
     }
 
     #[inline]
