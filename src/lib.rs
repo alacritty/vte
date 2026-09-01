@@ -51,9 +51,12 @@ const MAX_OSC_RAW: usize = 1024;
 ///
 /// [`Perform`]: trait.Perform.html
 ///
-/// Generic over the value for the size of the raw Operating System Command
-/// buffer. Only used when the `std` feature is not enabled.
-#[derive(Default)]
+/// In `no_std` builds, the generic parameter sets the fixed size of the buffer
+/// for parsing Operating System Commands. When the `std` feature is enabled, it
+/// is not used. To protect against resource exhaustion when parsing
+/// potentially-adversarial input, use
+/// [`set_osc_max_raw`](Parser::set_osc_max_raw) to configure a dynamic limit on
+/// memory allocation while parsing OSCs.
 pub struct Parser<const OSC_RAW_BUF_SIZE: usize = MAX_OSC_RAW> {
     state: State,
     intermediates: [u8; MAX_INTERMEDIATES],
@@ -64,6 +67,11 @@ pub struct Parser<const OSC_RAW_BUF_SIZE: usize = MAX_OSC_RAW> {
     osc_raw: ArrayVec<u8, OSC_RAW_BUF_SIZE>,
     #[cfg(feature = "std")]
     osc_raw: Vec<u8>,
+    osc_max_raw: Option<usize>,
+    /// Tracks for the remainder of an OSC sequence that an overflow of the OSC
+    /// buffer occurred, so that if the limit is increased in the middle the of
+    /// sequence we don't get discontiguous bytes.
+    osc_raw_overflowed: bool,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
     ignoring: bool,
@@ -75,6 +83,29 @@ impl Parser {
     /// Create a new Parser
     pub fn new() -> Parser {
         Default::default()
+    }
+}
+
+impl<const OSC_RAW_BUF_SIZE: usize> Default for Parser<OSC_RAW_BUF_SIZE> {
+    fn default() -> Self {
+        Self {
+            state: Default::default(),
+            intermediates: Default::default(),
+            intermediate_idx: Default::default(),
+            params: Default::default(),
+            param: Default::default(),
+            osc_raw: Default::default(),
+            #[cfg(feature = "std")]
+            osc_max_raw: Default::default(),
+            #[cfg(not(feature = "std"))]
+            osc_max_raw: Some(OSC_RAW_BUF_SIZE),
+            osc_raw_overflowed: Default::default(),
+            osc_params: Default::default(),
+            osc_num_params: Default::default(),
+            ignoring: Default::default(),
+            partial_utf8: Default::default(),
+            partial_utf8_len: Default::default(),
+        }
     }
 }
 
@@ -90,6 +121,55 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     #[cfg(not(feature = "std"))]
     pub fn new_with_size() -> Parser<OSC_RAW_BUF_SIZE> {
         Default::default()
+    }
+
+    /// Sets the maximum Operating System Command length accepted by the parser.
+    ///
+    /// `None` means unlimited.
+    ///
+    /// When the `std` feature is disabled, whatever is provided here will be
+    /// clamped to `OSC_RAW_BUF_SIZE`.
+    pub fn set_osc_max_raw(&mut self, bytes: Option<usize>) {
+        #[cfg(not(feature = "std"))]
+        if let Some(osc_max_raw_bytes) = bytes {
+            let new_max = osc_max_raw_bytes.min(OSC_RAW_BUF_SIZE);
+            self.osc_max_raw = Some(new_max);
+            self.truncate_osc_raw(new_max);
+        } else {
+            self.osc_max_raw = Some(OSC_RAW_BUF_SIZE);
+        }
+
+        #[cfg(feature = "std")]
+        {
+            self.osc_max_raw = bytes;
+            if let Some(osc_max_raw_bytes) = bytes {
+                self.truncate_osc_raw(osc_max_raw_bytes);
+                self.osc_raw.shrink_to(osc_max_raw_bytes);
+            }
+        }
+    }
+
+    /// Returns the maximum Operating System Command length accepted by the
+    /// parser.
+    ///
+    /// `None` means unlimited.
+    pub fn osc_max_raw(&self) -> Option<usize> {
+        self.osc_max_raw
+    }
+
+    /// Truncate `osc_raw` and drop any already-parsed parameters that point
+    /// out-of-bounds.
+    fn truncate_osc_raw(&mut self, len: usize) {
+        let truncated = self.osc_raw.len() > len;
+        self.osc_raw_overflowed |= truncated;
+
+        if truncated {
+            while self.osc_num_params > 0 && self.osc_params[self.osc_num_params - 1].1 >= len {
+                self.osc_num_params -= 1;
+            }
+        }
+
+        self.osc_raw.truncate(len);
     }
 
     #[inline]
@@ -373,6 +453,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             },
             0x5D => {
                 self.osc_raw.clear();
+                self.osc_raw_overflowed = false;
                 self.osc_num_params = 0;
                 self.state = State::OscString
             },
@@ -424,9 +505,12 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.state = State::Escape
             },
             0x3B => {
-                #[cfg(not(feature = "std"))]
-                {
-                    if self.osc_raw.is_full() {
+                if self.osc_raw_overflowed {
+                    return;
+                }
+                if let Some(max_osc_raw) = self.osc_max_raw {
+                    if self.osc_raw.len() >= max_osc_raw {
+                        self.osc_raw_overflowed = true;
                         return;
                     }
                 }
@@ -544,9 +628,12 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
 
     #[inline(always)]
     fn action_osc_put(&mut self, byte: u8) {
-        #[cfg(not(feature = "std"))]
-        {
-            if self.osc_raw.is_full() {
+        if self.osc_raw_overflowed {
+            return;
+        }
+        if let Some(max_osc_raw) = self.osc_max_raw {
+            if self.osc_raw.len() >= max_osc_raw {
+                self.osc_raw_overflowed = true;
                 return;
             }
         }
@@ -557,6 +644,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         self.action_osc_put_param();
         self.osc_dispatch(performer, byte);
         self.osc_raw.clear();
+        self.osc_raw_overflowed = false;
         self.osc_num_params = 0;
     }
 
@@ -1362,6 +1450,68 @@ mod tests {
             },
             _ => panic!("expected osc sequence"),
         }
+    }
+
+    #[test]
+    fn exceed_dynamic_osc_buffer_size() {
+        const OSC_BUFFER_SIZE: usize = 32;
+        const NUM_BYTES: usize = OSC_BUFFER_SIZE + 100;
+        const INPUT_START: &[u8] = b"\x1b]52;";
+        const INPUT_END: &[u8] = b"\x07";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser: Parser = Parser::new();
+        parser.set_osc_max_raw(Some(OSC_BUFFER_SIZE));
+
+        // Create valid OSC escape
+        parser.advance(&mut dispatcher, INPUT_START);
+
+        // Exceed max buffer size
+        parser.advance(&mut dispatcher, &[b'a'; NUM_BYTES]);
+
+        // Terminate escape for dispatch
+        parser.advance(&mut dispatcher, INPUT_END);
+
+        assert_eq!(dispatcher.dispatched.len(), 1);
+        match &dispatcher.dispatched[0] {
+            Sequence::Osc(params, _) => {
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0], b"52");
+                assert_eq!(params[1].len(), OSC_BUFFER_SIZE - params[0].len());
+                for item in params[1].iter() {
+                    assert_eq!(*item, b'a');
+                }
+            },
+            _ => panic!("expected osc sequence"),
+        }
+    }
+
+    #[test]
+    fn intra_osc_buffer_increase() {
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+        parser.set_osc_max_raw(Some(4));
+
+        parser.advance(&mut dispatcher, b"\x1b]52;c;abcdef");
+        parser.set_osc_max_raw(None);
+        parser.advance(&mut dispatcher, b"XYZ\x07");
+
+        assert_eq!(dispatcher.dispatched, [Sequence::Osc(
+            vec![b"52".to_vec(), b"c".to_vec(), b"a".to_vec()],
+            true,
+        )]);
+    }
+
+    #[test]
+    fn intra_osc_buffer_decrease() {
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        parser.advance(&mut dispatcher, b"\x1b]52;c;payload");
+        parser.set_osc_max_raw(Some(2));
+        parser.advance(&mut dispatcher, b"\x07");
+
+        assert_eq!(dispatcher.dispatched, [Sequence::Osc(vec![b"52".to_vec()], true)]);
     }
 
     #[cfg(not(feature = "std"))]

@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## 0.15.1-dev
+
+- Add support for capping OSC buffer length in `std` builds
+
 ## 0.15.0
 
 - Support `CSI ? 5 W` to reset tabs stops to every 8th column
