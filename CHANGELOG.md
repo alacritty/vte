@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Character after a multi-byte codepoint split across two `advance` calls being skipped
+
 ## 0.15.0
 
 - Support `CSI ? 5 W` to reset tabs stops to every 8th column

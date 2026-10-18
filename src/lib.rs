@@ -700,7 +700,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                     performer.print(c);
 
                     self.partial_utf8_len = 0;
-                    return valid_bytes - old_bytes;
+                    return c.len_utf8() - old_bytes;
                 }
 
                 match err.error_len() {
@@ -1455,6 +1455,51 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 2);
         assert_eq!(dispatcher.dispatched[0], Sequence::Print('ĸ'));
         assert_eq!(dispatcher.dispatched[1], Sequence::Print('🎉'));
+    }
+
+    #[test]
+    fn partial_utf8_followed_by_ascii_and_partial_utf8() {
+        // A 2-byte codepoint split after its lead byte, followed by an ASCII byte and the
+        // lead byte of another multi-byte codepoint. The ASCII byte must not be skipped.
+        // See #159.
+
+        // "ïcø"
+        const INPUT: &[u8] = b"\xC3\xAFc\xC3\xB8";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        parser.advance(&mut dispatcher, &INPUT[..1]);
+        parser.advance(&mut dispatcher, &INPUT[1..]);
+
+        assert_eq!(
+            dispatcher.dispatched,
+            vec![Sequence::Print('ï'), Sequence::Print('c'), Sequence::Print('ø'),]
+        );
+    }
+
+    #[test]
+    fn partial_utf8_any_split_matches_whole_buffer() {
+        // Where a buffer boundary falls must not change what is printed.
+        for input in ["B\u{301}C\u{2500}", "\u{ef}c\u{f8}", "e\u{301}a\u{301}b\u{2500}c\u{1f600}d"]
+        {
+            let bytes = input.as_bytes();
+            for at in 1..bytes.len() {
+                let mut dispatcher = Dispatcher::default();
+                let mut parser = Parser::new();
+                parser.advance(&mut dispatcher, &bytes[..at]);
+                parser.advance(&mut dispatcher, &bytes[at..]);
+                let printed: String = dispatcher
+                    .dispatched
+                    .iter()
+                    .map(|s| match s {
+                        Sequence::Print(c) => *c,
+                        other => panic!("unexpected {other:?}"),
+                    })
+                    .collect();
+                assert_eq!(printed, input, "split at byte {at}");
+            }
+        }
     }
 
     #[test]
