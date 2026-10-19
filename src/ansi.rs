@@ -260,7 +260,7 @@ struct SyncState<T: Timeout> {
 
 impl<T: Timeout> Default for SyncState<T> {
     fn default() -> Self {
-        Self { buffer: Vec::with_capacity(SYNC_BUFFER_SIZE), timeout: Default::default() }
+        Self { buffer: Vec::new(), timeout: Default::default() }
     }
 }
 
@@ -504,6 +504,13 @@ pub trait Handler {
 
     /// A character to be displayed.
     fn input(&mut self, _c: char) {}
+
+    /// A run of characters to be displayed.
+    fn input_str(&mut self, text: &str) {
+        for c in text.chars() {
+            self.input(c);
+        }
+    }
 
     /// Set cursor to position.
     fn goto(&mut self, _line: i32, _col: usize) {}
@@ -1293,6 +1300,14 @@ where
     }
 
     #[inline]
+    fn print_str(&mut self, text: &str) {
+        self.handler.input_str(text);
+        if let Some(c) = text.chars().next_back() {
+            self.state.preceding_char = Some(c);
+        }
+    }
+
+    #[inline]
     fn execute(&mut self, byte: u8) {
         match byte {
             C0::HT => self.handler.put_tab(1),
@@ -1338,7 +1353,7 @@ where
                 }
                 buf.push_str("],");
             }
-            debug!("[unhandled osc_dispatch]: [{}] at line {}", &buf, line!());
+            debug!("[unhandled osc_dispatch]: [{}] at line {}", buf, line!());
         }
 
         if params.is_empty() || params[0].is_empty() {
@@ -1927,7 +1942,7 @@ fn handle_colon_rgb(params: &[u16]) -> Option<Color> {
 }
 
 /// Parse a color specifier from list of attributes.
-fn parse_sgr_color(params: &mut dyn Iterator<Item = u16>) -> Option<Color> {
+fn parse_sgr_color(params: &mut impl Iterator<Item = u16>) -> Option<Color> {
     match params.next() {
         Some(2) => Some(Color::Spec(Rgb {
             r: u8::try_from(params.next()?).ok()?,
@@ -2392,6 +2407,24 @@ mod tests {
             assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
             assert!(handler.attr.take().is_some());
         }
+    }
+
+    #[test]
+    fn sync_buffer_grows_lazily() {
+        let mut parser = Processor::<TestSyncHandler>::new();
+        let mut handler = MockHandler::default();
+        assert_eq!(parser.state.sync_state.buffer.capacity(), 0);
+
+        // One byte short of the limit stays synchronized.
+        parser.advance(&mut handler, b"\x1b[?2026h");
+        let fill = SYNC_BUFFER_SIZE - 2 - parser.sync_bytes_count();
+        parser.advance(&mut handler, "a".repeat(fill).as_bytes());
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 1);
+        assert_eq!(parser.sync_bytes_count(), SYNC_BUFFER_SIZE - 2);
+
+        // The next byte aborts the update.
+        parser.advance(&mut handler, b"a");
+        assert_eq!(parser.state.sync_state.timeout.is_sync, 0);
     }
 
     #[test]
