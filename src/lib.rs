@@ -166,6 +166,18 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         i
     }
 
+    /// Whether the parser is partway through an escape code.
+    #[inline]
+    pub fn is_reading_escape_code(&self) -> bool {
+        self.state != State::Ground
+    }
+
+    /// Whether the parser is partway through a UTF-8 character.
+    #[inline]
+    pub fn is_mid_char(&self) -> bool {
+        self.partial_utf8_len != 0
+    }
+
     #[inline(always)]
     fn change_state<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match self.state {
@@ -1540,5 +1552,53 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 2);
         assert_eq!(dispatcher.dispatched[0], Sequence::Execute(0x18));
         assert_eq!(dispatcher.dispatched[1], Sequence::Execute(0x1A));
+    }
+
+    #[test]
+    fn reading_escape_code() {
+        // Each input, and whether the parser is partway through an escape code
+        // after it.
+        const INPUTS: &[(&[u8], bool)] = &[
+            (b"text", false),
+            (b"\x1b", true),
+            (b"[3", true),
+            (b"1m", false),
+            (b"\x1b]2;title", true),
+            (b"\x07", false),
+            (b"\x1bP1$r", true),
+            (b"text\x1b", true),
+            (b"\\", false),
+            (b"\xE2\x82", false),
+        ];
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        assert!(!parser.is_reading_escape_code());
+        for &(input, reading) in INPUTS {
+            parser.advance(&mut dispatcher, input);
+            assert_eq!(parser.is_reading_escape_code(), reading, "after {:?}", input);
+        }
+    }
+
+    #[test]
+    fn mid_char() {
+        // A "€" cut in three, then one cut off by an escape code.
+        const INPUTS: &[(&[u8], bool)] = &[
+            (b"\xE2", true),
+            (b"\x82", true),
+            (b"\xAC", false),
+            (b"\xE2\x82", true),
+            (b"\x1b[", false),
+        ];
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        assert!(!parser.is_mid_char());
+        for &(input, mid) in INPUTS {
+            parser.advance(&mut dispatcher, input);
+            assert_eq!(parser.is_mid_char(), mid, "after {:?}", input);
+        }
     }
 }

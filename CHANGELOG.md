@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- `Parser::is_reading_escape_code` and `Parser::is_reading_char` tell whether
+    the parser is partway through an escape code or a UTF-8 character
+
 ## 0.15.0
 
 - Support `CSI ? 5 W` to reset tabs stops to every 8th column
