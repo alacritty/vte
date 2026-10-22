@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+## Unreleased
+
+- Add `Parser::is_idle` which checks whether the parser is currently not in an
+  escape sequence nor is currently mid-UTF8 sequence.
+
 ## 0.15.0
 
 - Support `CSI ? 5 W` to reset tabs stops to every 8th column
