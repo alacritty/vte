@@ -3,8 +3,8 @@ CHANGELOG
 
 ## Unreleased
 
-- `Parser::is_reading_escape_code` and `Parser::is_reading_char` tell whether
-    the parser is partway through an escape code or a UTF-8 character
+- `Parser::is_reading_escape_code` and `Parser::is_mid_char` tell whether the
+    parser is partway through an escape code or a UTF-8 character
 
 ## 0.15.0
 
