@@ -867,15 +867,19 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
 fn ascii_run_len(bytes: &[u8]) -> usize {
     const LO: u64 = 0x0101_0101_0101_0101;
     const HI: u64 = 0x8080_8080_8080_8080;
+    const ESC: u64 = LO * 0x1B;
 
     let mut chunks = bytes.chunks_exact(8);
     let mut offset = 0;
     for chunk in &mut chunks {
-        let word = u64::from_ne_bytes(chunk.try_into().unwrap());
-        let esc = word ^ (LO * 0x1B);
-        auto needle = (word & HI) | (esc.wrapping_sub(LO) & !esc & HI);
-        if needle != 0 {
-            return offset + trailing_zeros() / 8;
+        let word = u64::from_le_bytes(chunk.try_into().unwrap());
+        let esc = word ^ ESC;
+
+        // Borrows only carry upwards, so the lowest set bit is always a real
+        // match even though higher ones may not be.
+        let found = (word & HI) | (esc.wrapping_sub(LO) & !esc & HI);
+        if found != 0 {
+            return offset + found.trailing_zeros() as usize / 8;
         }
         offset += 8;
     }
