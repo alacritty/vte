@@ -873,8 +873,9 @@ fn ascii_run_len(bytes: &[u8]) -> usize {
     for chunk in &mut chunks {
         let word = u64::from_ne_bytes(chunk.try_into().unwrap());
         let esc = word ^ (LO * 0x1B);
-        if (word & HI) | (esc.wrapping_sub(LO) & !esc & HI) != 0 {
-            break;
+        auto needle = (word & HI) | (esc.wrapping_sub(LO) & !esc & HI);
+        if needle != 0 {
+            return offset + trailing_zeros() / 8;
         }
         offset += 8;
     }
