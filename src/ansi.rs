@@ -319,6 +319,24 @@ impl<T: Timeout> Processor<T> {
         self.stop_sync_internal(handler, None);
     }
 
+    /// Returns the maximum Operating System Command length accepted by the
+    /// parser.
+    ///
+    /// `None` means unlimited.
+    pub fn osc_max_raw(&self) -> Option<usize> {
+        self.parser.osc_max_raw()
+    }
+
+    /// Sets the maximum Operating System Command length accepted by the parser.
+    ///
+    /// `None` means unlimited.
+    ///
+    /// When the `std` feature is disabled, whatever is provided here will be
+    /// clamped to 1024.
+    pub fn set_osc_max_raw(&mut self, bytes: Option<usize>) {
+        self.parser.set_osc_max_raw(bytes);
+    }
+
     /// End a synchronized update.
     ///
     /// The `bsu_offset` parameter should be passed if the sync buffer contains
