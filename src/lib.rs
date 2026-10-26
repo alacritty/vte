@@ -815,15 +815,16 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         let mut offset = 0;
 
         // Find the control characters one word at a time.
-        while let Some(chunk) = bytes.get(offset..offset + 8) {
-            let word = u64::from_le_bytes(chunk.try_into().unwrap());
+        while let Some(Ok(chunk)) = bytes.get(offset..offset + 8).map(<[u8; 8]>::try_from) {
+            let word = u64::from_le_bytes(chunk);
 
-            // All bytes are below 0x80, so the subtraction cannot borrow across
-            // bytes.
+            // Setting the top bit of each byte keeps the subtraction within
+            // the byte, and the top bit stays set only for bytes of at least
+            // 0x20. This only works because the text is ASCII.
             let mut controls = !((word | HI) - LO * 0x20) & HI;
             while controls != 0 {
                 let end = offset + controls.trailing_zeros() as usize / 8;
-                Self::ground_dispatch_control(performer, text, start, end);
+                Self::print_and_execute(performer, text, start, end);
                 start = end + 1;
                 controls &= controls - 1;
             }
@@ -831,9 +832,10 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             offset += 8;
         }
 
+        // Check the remaining bytes that didn't fit into a full word.
         for (index, &byte) in bytes[offset..].iter().enumerate() {
             if byte < 0x20 {
-                Self::ground_dispatch_control(performer, text, start, offset + index);
+                Self::print_and_execute(performer, text, start, offset + index);
                 start = offset + index + 1;
             }
         }
@@ -843,48 +845,40 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         }
     }
 
-    /// Print the text from `start` up to the control character at `end`, then
-    /// execute it.
+    /// Print the characters from `start` up to `end`, then execute the
+    /// control character at `end`.
     #[inline]
-    fn ground_dispatch_control<P: Perform>(
-        performer: &mut P,
-        text: &str,
-        start: usize,
-        end: usize,
-    ) {
-        // Line based output is often a single character between control
-        // characters, which is cheaper to print directly than as a
-        // string.
-        if end == start + 1 {
-            performer.print(text.as_bytes()[start] as char);
-        } else if end > start {
+    fn print_and_execute<P: Perform>(performer: &mut P, text: &str, start: usize, end: usize) {
+        if end > start {
             performer.print_str(&text[start..end]);
         }
         performer.execute(text.as_bytes()[end]);
     }
 }
 
-/// Length of the leading run without ESC or non-ASCII bytes.
+/// Number of leading bytes that are ASCII and not ESC.
+///
+/// This checks 8 bytes at a time. `word & HI` marks non-ASCII bytes, and the
+/// standard zero-byte check on `word ^ ESC` marks ESC. The zero-byte check can
+/// also mark bytes after a real match, so only the lowest mark is used.
 #[inline]
-fn ascii_run_len(bytes: &[u8]) -> usize {
+fn leading_ascii_bytes(bytes: &[u8]) -> usize {
     const LO: u64 = 0x0101_0101_0101_0101;
     const HI: u64 = 0x8080_8080_8080_8080;
     const ESC: u64 = LO * 0x1B;
 
     let mut chunks = bytes.chunks_exact(8);
     let mut offset = 0;
-    for chunk in &mut chunks {
-        let word = u64::from_le_bytes(chunk.try_into().unwrap());
+    while let Some(Ok(chunk)) = chunks.next().map(<[u8; 8]>::try_from) {
+        let word = u64::from_le_bytes(chunk);
         let esc = word ^ ESC;
-
-        // Borrows only carry upwards, so the lowest set bit is always a real
-        // match even though higher ones may not be.
         let found = (word & HI) | (esc.wrapping_sub(LO) & !esc & HI);
         if found != 0 {
             return offset + found.trailing_zeros() as usize / 8;
         }
         offset += 8;
     }
+
     // Check the remaining bytes that didn't fit into a full word.
     offset + bytes[offset..].iter().take_while(|&&b| b != 0x1B && b < 0x80).count()
 }
@@ -1068,27 +1062,25 @@ mod tests {
 
     #[test]
     fn parse_ascii_controls() {
-        for len in 0..24 {
-            for control in 0..len {
-                let mut input: Vec<u8> = (0..len).map(|i| b' ' + (i * 7 % 95) as u8).collect();
-                input[control] = b'\r';
-                if control + 2 < len {
-                    input[control + 2] = 0x1F;
-                }
+        // 20 bytes is two full words and a 4 byte tail, so this puts the
+        // control characters at every position of both.
+        for position in 0..20 {
+            let mut input = *b"abcdefghijklmnopqrst";
+            input[position] = b'\r';
+            input[(position + 2) % input.len()] = 0x1F;
 
-                let mut dispatcher = Dispatcher::default();
-                let mut parser = Parser::new();
-                parser.advance(&mut dispatcher, &input);
+            let mut dispatcher = Dispatcher::default();
+            let mut parser = Parser::new();
+            parser.advance(&mut dispatcher, &input);
 
-                let expected: Vec<_> = input
-                    .iter()
-                    .map(|&byte| match byte {
-                        0x00..=0x1F => Sequence::Execute(byte),
-                        _ => Sequence::Print(byte as char),
-                    })
-                    .collect();
-                assert_eq!(dispatcher.dispatched, expected);
-            }
+            let expected: Vec<_> = input
+                .iter()
+                .map(|&byte| match byte {
+                    0x00..=0x1F => Sequence::Execute(byte),
+                    _ => Sequence::Print(byte as char),
+                })
+                .collect();
+            assert_eq!(dispatcher.dispatched, expected, "position {position}");
         }
     }
 
@@ -1749,46 +1741,6 @@ mod tests {
         assert_eq!(dispatcher.dispatched[1], Sequence::Execute(0x1A));
     }
 
-    const ODD_BYTES: &[u8] = b"\x00\x07\x18\x1a\x7f\x1f\x20\x2f:?<>=!\"$\xff\x9b\xc3\x80";
-
-    struct Rng(u64);
-
-    impl Rng {
-        fn next(&mut self) -> u64 {
-            self.0 ^= self.0 << 13;
-            self.0 ^= self.0 >> 7;
-            self.0 ^= self.0 << 17;
-            self.0
-        }
-
-        fn below(&mut self, n: usize) -> usize {
-            (self.next() >> 11) as usize % n
-        }
-    }
-
-    fn random_bytes(rng: &mut Rng) -> Vec<u8> {
-        let len = 1 + rng.below(200);
-        let mut bytes = Vec::new();
-        while bytes.len() < len {
-            match rng.below(15) {
-                0..=3 => bytes.extend_from_slice(b"\x1b["),
-                4 => bytes.push(0x1B),
-                5..=7 => {
-                    for _ in 0..1 + rng.below(4) {
-                        bytes.push(b'0' + rng.below(10) as u8);
-                    }
-                },
-                8 | 9 => bytes.push(b';'),
-                10 => bytes.push(0x40 + rng.below(0x3F) as u8),
-                11 => bytes.push(ODD_BYTES[rng.below(ODD_BYTES.len())]),
-                12 => bytes.extend_from_slice("é€😀".as_bytes()),
-                13 => bytes.extend_from_slice(b"99999999999;65535;65536"),
-                _ => bytes.extend_from_slice("1;".repeat(rng.below(40)).as_bytes()),
-            }
-        }
-        bytes
-    }
-
     fn run(bytes: &[u8], chunks: &[usize]) -> Vec<Sequence> {
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
@@ -1806,15 +1758,34 @@ mod tests {
 
     #[test]
     fn csi_direct_matches_state_machine() {
-        let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
-        for _ in 0..20_000 {
-            let bytes = random_bytes(&mut rng);
-            let chunks: Vec<usize> = (0..8).map(|_| 1 + rng.below(40)).collect();
+        let inputs: &[&[u8]] = &[
+            b"\x1b[m",
+            b"\x1b[1;31m",
+            b"\x1b[;;m",
+            b"\x1b[38;5;196mred\x1b[0m",
+            b"\x1b[10;20H",
+            b"\x1b[99999999999;65535;65536m",
+            b"\x1b[?25l",
+            b"\x1b[4:3m",
+            b"\x1b[1$p",
+            b"\x1b[1\x1b[2m",
+            b"\x1b[1\x18m",
+            b"\x1b[1\x07m",
+            b"\x1b[\x1b",
+            "\x1b[1m\u{e9}\x1b[2J".as_bytes(),
+        ];
 
+        // Bytes the direct path doesn't handle itself, placed inside a CSI.
+        const UNUSUAL_BYTES: &[u8] = b"\x00\x07\x18\x1a\x7f\x1f\x20\x2f:?<>=!\"$\xff\x9b\xc3\x80";
+        let unusual = UNUSUAL_BYTES.iter().map(|&byte| [b"\x1b[1", &[byte][..], b"m"].concat());
+
+        for input in inputs.iter().map(|input| input.to_vec()).chain(unusual) {
             // Single byte chunks never reach the direct CSI path.
-            let expected = run(&bytes, &[1]);
-            assert_eq!(run(&bytes, &[bytes.len()]), expected);
-            assert_eq!(run(&bytes, &chunks), expected);
+            let expected = run(&input, &[1]);
+            for split in 1..=input.len() {
+                let dispatched = run(&input, &[split, input.len()]);
+                assert_eq!(dispatched, expected, "{input:?} split at {split}");
+            }
         }
     }
 
