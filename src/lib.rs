@@ -593,31 +593,33 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     /// Advance the parser state from ground.
     ///
     /// The ground state is handled separately since it can only be left using
-    /// the escape character (`\x1b`). Runs of plain ASCII are found in a single
-    /// scan, anything else goes through [`memchr`] and utf8 validation.
+    /// the escape character (`\x1b`). Leading ASCII is dispatched directly
+    /// without UTF-8 validation, anything else goes through [`memchr`] and
+    /// UTF-8 validation.
     #[inline]
     fn advance_ground<P: Perform>(&mut self, performer: &mut P, bytes: &[u8]) -> usize {
         // Find the next escape or non-ASCII byte.
         let num_bytes = bytes.len();
-        let ascii_len = ascii_run_len(bytes);
+        let leading_ascii_bytes = leading_ascii_bytes(bytes);
 
-        if ascii_len > 0 {
-            // SAFETY: `ascii_run_len` only counts ASCII bytes, which are valid
-            // UTF-8.
-            let parsed = unsafe { str::from_utf8_unchecked(&bytes[..ascii_len]) };
+        if leading_ascii_bytes > 0 {
+            // SAFETY: `leading_ascii_bytes` only counts ASCII bytes, which are
+            // valid UTF-8.
+            let parsed = unsafe { str::from_utf8_unchecked(&bytes[..leading_ascii_bytes]) };
             Self::ground_dispatch_ascii(performer, parsed);
 
-            if ascii_len < num_bytes && bytes[ascii_len] == 0x1B {
-                if let Some(len) = self.advance_csi_direct(performer, &bytes[ascii_len + 1..]) {
-                    return ascii_len + 1 + len;
+            if leading_ascii_bytes < num_bytes && bytes[leading_ascii_bytes] == 0x1B {
+                let csi_bytes = &bytes[leading_ascii_bytes + 1..];
+                if let Some(len) = self.advance_csi_direct(performer, csi_bytes) {
+                    return leading_ascii_bytes + 1 + len;
                 }
 
                 self.state = State::Escape;
                 self.reset_params();
-                return ascii_len + 1;
+                return leading_ascii_bytes + 1;
             }
 
-            return ascii_len;
+            return leading_ascii_bytes;
         }
 
         // Find the next escape character.
