@@ -885,7 +885,7 @@ fn ascii_run_len(bytes: &[u8]) -> usize {
         }
         offset += 8;
     }
-
+    // Check the remaining bytes that didn't fit into a full word.
     offset + bytes[offset..].iter().take_while(|&&b| b != 0x1B && b < 0x80).count()
 }
 
