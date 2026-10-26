@@ -330,8 +330,8 @@ impl<T: Timeout> Processor<T> {
     {
         // Process all synchronized bytes.
         //
-        // NOTE: We do not use `advance_until_terminated` here since BSU sequences are
-        // processed automatically during the synchronized update.
+        // NOTE: We do not use `advance_until_terminated` here since BSU
+        // sequences are processed automatically during the synchronized update.
         let buffer = mem::take(&mut self.state.sync_state.buffer);
         let offset = bsu_offset.unwrap_or(buffer.len());
         let mut performer = Performer::new(&mut self.state, handler);
@@ -341,8 +341,8 @@ impl<T: Timeout> Processor<T> {
         match bsu_offset {
             // Just clear processed bytes if there is a new BSU.
             //
-            // NOTE: We do not need to re-process for a new ESU since the `advance_sync`
-            // function checks for BSUs in reverse.
+            // NOTE: We do not need to re-process for a new ESU since the
+            // `advance_sync` function checks for BSUs in reverse.
             Some(bsu_offset) => {
                 let new_len = self.state.sync_state.buffer.len() - bsu_offset;
                 self.state.sync_state.buffer.copy_within(bsu_offset.., 0);
@@ -371,7 +371,8 @@ impl<T: Timeout> Processor<T> {
     where
         H: Handler,
     {
-        // Advance sync parser or stop sync if we'd exceed the maximum buffer size.
+        // Advance sync parser or stop sync if we'd exceed the maximum buffer
+        // size.
         if self.state.sync_state.buffer.len() + bytes.len() >= SYNC_BUFFER_SIZE - 1 {
             // Terminate the synchronized update.
             self.stop_sync_internal(handler, None);
@@ -391,7 +392,8 @@ impl<T: Timeout> Processor<T> {
     where
         H: Handler,
     {
-        // Get constraints within which a new escape character might be relevant.
+        // Get constraints within which a new escape character might be
+        // relevant.
         let buffer_len = self.state.sync_state.buffer.len();
         let start_offset = (buffer_len - new_bytes).saturating_sub(SYNC_ESCAPE_LEN - 1);
         let end_offset = buffer_len.saturating_sub(SYNC_ESCAPE_LEN - 1);
@@ -399,9 +401,9 @@ impl<T: Timeout> Processor<T> {
 
         // Search for termination/extension escapes in the added bytes.
         //
-        // NOTE: It is technically legal to specify multiple private modes in the same
-        // escape, but we only allow EXACTLY `\e[?2026h`/`\e[?2026l` to keep the parser
-        // more simple.
+        // NOTE: It is technically legal to specify multiple private modes in
+        // the same escape, but we only allow EXACTLY `\e[?2026h`/`\e[? 2026l`
+        // to keep the parser more simple.
         let mut bsu_offset = None;
         for index in memchr::memchr_iter(0x1B, search_buffer).rev() {
             let offset = start_offset + index;
@@ -1408,23 +1410,24 @@ where
             b"8" if params.len() > 2 => {
                 let link_params = params[1];
 
-                // NOTE: The escape sequence is of form 'OSC 8 ; params ; URI ST', where
-                // URI is URL-encoded. However `;` is a special character and might be
-                // passed as is, thus we need to rebuild the URI.
+                // NOTE: The escape is of form `OSC 8 ; params ; URI ST`, where
+                // URI is URL-encoded. However `;` is a special character and
+                // might be passed as is, thus we need to rebuild the URI.
                 let mut uri = str::from_utf8(params[2]).unwrap_or_default().to_string();
                 for param in params[3..].iter() {
                     uri.push(';');
                     uri.push_str(str::from_utf8(param).unwrap_or_default());
                 }
 
-                // The OSC 8 escape sequence must be stopped when getting an empty `uri`.
+                // The OSC 8 escape sequence must be stopped when getting an
+                // empty `uri`.
                 if uri.is_empty() {
                     self.handler.set_hyperlink(None);
                     return;
                 }
 
-                // Link parameters are in format of `key1=value1:key2=value2`. Currently only
-                // key `id` is defined.
+                // Link parameters are in format of `key1=value1:key2=value2`.
+                // Currently only key `id` is defined.
                 let id = link_params
                     .split(|&b| b == b':')
                     .find_map(|kv| kv.strip_prefix(b"id="))
@@ -1438,7 +1441,8 @@ where
                 if params.len() >= 2 {
                     if let Some(mut dynamic_code) = parse_number(params[0]) {
                         for param in &params[1..] {
-                            // 10 is the first dynamic color, also the foreground.
+                            // 10 is the first dynamic color, also the
+                            // foreground.
                             let offset = dynamic_code as usize - 10;
                             let index = NamedColor::Foreground as usize + offset;
 
@@ -1830,7 +1834,8 @@ where
             (b'8', []) => self.handler.restore_cursor_position(),
             (b'=', []) => self.handler.set_keypad_application_mode(),
             (b'>', []) => self.handler.unset_keypad_application_mode(),
-            // String terminator, do nothing (parser handles as string terminator).
+            // String terminator, do nothing (parser handles as string
+            // terminator).
             (b'\\', []) => (),
             _ => unhandled!(),
         }

@@ -641,7 +641,8 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 Self::ground_dispatch(performer, parsed);
                 let mut processed = plain_chars;
 
-                // If there's another character, it must be escape so process it directly.
+                // If there's another character, it must be escape so process it
+                // directly.
                 if processed < num_bytes {
                     if let Some(len) = self.advance_csi_direct(performer, &bytes[processed + 1..]) {
                         return processed + 1 + len;
@@ -674,7 +675,8 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                         //
                         // While we could theoretically try to just re-parse
                         // `bytes[valid_bytes + len..plain_chars]`, it's easier
-                        // to just skip it and invalid utf8 is pretty rare anyway.
+                        // to just skip it and invalid utf8 is pretty rare
+                        // anyway.
                         valid_bytes + len
                     },
                     None => {
@@ -743,7 +745,8 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     /// Advance the parser while processing a partial utf8 codepoint.
     #[inline]
     fn advance_partial_utf8<P: Perform>(&mut self, performer: &mut P, bytes: &[u8]) -> usize {
-        // Try to copy up to 3 more characters, to ensure the codepoint is complete.
+        // Try to copy up to 3 more characters, to ensure the codepoint is
+        // complete.
         let old_bytes = self.partial_utf8_len;
         let to_copy = bytes.len().min(self.partial_utf8.len() - old_bytes);
         self.partial_utf8[old_bytes..old_bytes + to_copy].copy_from_slice(&bytes[..to_copy]);
@@ -751,7 +754,8 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
 
         // Parse the unicode character.
         match str::from_utf8(&self.partial_utf8[..self.partial_utf8_len]) {
-            // If the entire buffer is valid, use the first character and continue parsing.
+            // If the entire buffer is valid, use the first character and
+            // continue parsing.
             Ok(parsed) => {
                 let c = unsafe { parsed.chars().next().unwrap_unchecked() };
                 performer.print(c);
@@ -761,9 +765,9 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             },
             Err(err) => {
                 let valid_bytes = err.valid_up_to();
-                // If we have any valid bytes, that means we partially copied another
-                // utf8 character into `partial_utf8`. Since we only care about the
-                // first character, we just ignore the rest.
+                // If we have any valid bytes, that means we partially copied
+                // another utf8 character into `partial_utf8`. Since we only
+                // care about the first character, we just ignore the rest.
                 if valid_bytes > 0 {
                     let c = unsafe {
                         let parsed = str::from_utf8_unchecked(&self.partial_utf8[..valid_bytes]);
@@ -777,15 +781,16 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 }
 
                 match err.error_len() {
-                    // If the partial character was also invalid, emit the replacement
-                    // character.
+                    // If the partial character was also invalid, emit the
+                    // replacement character.
                     Some(invalid_len) => {
                         performer.print('�');
 
                         self.partial_utf8_len = 0;
                         invalid_len - old_bytes
                     },
-                    // If the character still isn't complete, wait for more data.
+                    // If the character still isn't complete, wait for more
+                    // data.
                     None => to_copy,
                 }
             },
@@ -1237,8 +1242,9 @@ mod tests {
     #[test]
     fn parse_csi_max_params() {
         // This will build a list of repeating '1;'s
-        // The length is MAX_PARAMS - 1 because the last semicolon is interpreted
-        // as an implicit zero, making the total number of parameters MAX_PARAMS
+        // The length is MAX_PARAMS - 1 because the last semicolon is
+        // interpreted as an implicit zero, making the total number of
+        // parameters MAX_PARAMS
         let params = "1;".repeat(params::MAX_PARAMS - 1);
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
@@ -1261,7 +1267,8 @@ mod tests {
     fn parse_csi_params_ignore_long_params() {
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS because the last semicolon is interpreted
-        // as an implicit zero, making the total number of parameters MAX_PARAMS + 1
+        // as an implicit zero, making the total number of parameters MAX_PARAMS
+        // + 1
         let params = "1;".repeat(params::MAX_PARAMS);
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
@@ -1622,9 +1629,10 @@ mod tests {
 
     #[test]
     fn partial_utf8_separating_utf8() {
-        // This is different from the `partial_utf8` test since it has a multi-byte UTF8
-        // character after the partial UTF8 state, causing a partial byte to be present
-        // in the `partial_utf8` buffer after the 2-byte codepoint.
+        // This is different from the `partial_utf8` test since it has a
+        // multi-byte UTF8 character after the partial UTF8 state, causing a
+        // partial byte to be present in the `partial_utf8` buffer after the
+        // 2-byte codepoint.
 
         // "ĸ🎉"
         const INPUT: &[u8] = b"\xC4\xB8\xF0\x9F\x8E\x89";
