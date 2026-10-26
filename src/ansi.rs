@@ -507,6 +507,13 @@ pub trait Handler {
     /// A character to be displayed.
     fn input(&mut self, _c: char) {}
 
+    /// A run of characters to be displayed.
+    fn input_str(&mut self, text: &str) {
+        for c in text.chars() {
+            self.input(c);
+        }
+    }
+
     /// Set cursor to position.
     fn goto(&mut self, _line: i32, _col: usize) {}
 
@@ -1295,6 +1302,14 @@ where
     }
 
     #[inline]
+    fn print_str(&mut self, text: &str) {
+        if let Some(c) = text.chars().next_back() {
+            self.handler.input_str(text);
+            self.state.preceding_char = Some(c);
+        }
+    }
+
+    #[inline]
     fn execute(&mut self, byte: u8) {
         match byte {
             C0::HT => self.handler.put_tab(1),
@@ -1932,7 +1947,7 @@ fn handle_colon_rgb(params: &[u16]) -> Option<Color> {
 }
 
 /// Parse a color specifier from list of attributes.
-fn parse_sgr_color(params: &mut dyn Iterator<Item = u16>) -> Option<Color> {
+fn parse_sgr_color(params: &mut impl Iterator<Item = u16>) -> Option<Color> {
     match params.next() {
         Some(2) => Some(Color::Spec(Rgb {
             r: u8::try_from(params.next()?).ok()?,
