@@ -814,7 +814,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         let mut start = 0;
         let mut offset = 0;
 
-        // Find the control characters a word at a time.
+        // Find the control characters one word at a time.
         while let Some(chunk) = bytes.get(offset..offset + 8) {
             let word = u64::from_le_bytes(chunk.try_into().unwrap());
 
