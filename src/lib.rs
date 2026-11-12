@@ -169,7 +169,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
     /// Whether the parser is currently not parsing any special sequences.
     ///
     /// This is `true` when the parser is not currently in any escape sequence,
-    /// nor is the parser stuck in a partial UTF8 sequence.
+    /// nor is the parser currently in the middle of a UTF-8 sequence.
     #[inline]
     pub fn is_idle(&self) -> bool {
         self.state == State::Ground && self.partial_utf8_len == 0
