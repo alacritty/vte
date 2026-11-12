@@ -1093,8 +1093,8 @@ mod tests {
     fn parse_csi_params_ignore_long_params() {
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS because the last semicolon is interpreted
-        // as an implicit zero, making the total number of parameters MAX_PARAMS
-        // + 1
+        // as an implicit zero, making the total number of parameters
+        // MAX_PARAMS + 1
         let params = "1;".repeat(params::MAX_PARAMS);
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
