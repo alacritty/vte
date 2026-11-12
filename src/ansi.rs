@@ -1395,10 +1395,10 @@ where
             b"8" if params.len() > 2 => {
                 let link_params = params[1];
 
-                // NOTE: The escape sequence is of form 'OSC 8 ; params ; URI
-                // ST', where URI is URL-encoded. However `;` is a special
-                // character and might be passed as is, thus we need to rebuild
-                // the URI.
+                // NOTE: The escape sequence is of form
+                // 'OSC 8 ; params ; URI ST', where URI is URL-encoded. However `;` is
+                // a special character and might be passed as is, thus we need to
+                // rebuild the URI.
                 let mut uri = str::from_utf8(params[2]).unwrap_or_default().to_string();
                 for param in params[3..].iter() {
                     uri.push(';');
