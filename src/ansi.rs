@@ -402,8 +402,8 @@ impl<T: Timeout> Processor<T> {
         // Search for termination/extension escapes in the added bytes.
         //
         // NOTE: It is technically legal to specify multiple private modes in
-        // the same escape, but we only allow EXACTLY `\e[?2026h`/`\e[?2026l` to
-        // keep the parser more simple.
+        // the same escape, but we only allow EXACTLY `\e[?2026h`/`\e[? 2026l`
+        // to keep the parser more simple.
         let mut bsu_offset = None;
         for index in memchr::memchr_iter(0x1B, search_buffer).rev() {
             let offset = start_offset + index;
