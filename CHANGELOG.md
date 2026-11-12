@@ -3,8 +3,8 @@ CHANGELOG
 
 ## Unreleased
 
-- Add `Parser::is_idle` which checks whether the parser is currently not in an
-  escape sequence nor is currently mid-UTF8 sequence.
+- Added `Parser::is_idle` to check whether the parser is neither in an escape,
+    nor a UTF-8 sequence.
 
 ## 0.15.0
 
@@ -45,7 +45,7 @@ CHANGELOG
 - Minimum rust version has been bumped to 1.62.1
 - Support for ANSI terminal stream parsing under the `ansi` feature.
 - Addition of the `serde` feature which derives `Serialize` and `Deserialize`
-  for the types provided in the `ansi` module.
+    for the types provided in the `ansi` module.
 
 ## 0.11.0
 
@@ -97,7 +97,7 @@ CHANGELOG
 ## 0.3.3
 
 - Fix off-by-one error in CSI parsing when params list was at max length
-  (previously caused a panic).
+    (previously caused a panic).
 - Support no_std
 
 ## 0.2.0
@@ -105,4 +105,4 @@ CHANGELOG
 - Removes `osc_start`, `osc_put`, and `osc_end`
 - Adds `osc_dispatch` which simply receives a list of parameters
 - Removes `byte: u8` parameter from `hook` and `unhook` because it's always
-  zero.
+    zero.
