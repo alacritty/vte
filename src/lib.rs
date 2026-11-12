@@ -1583,15 +1583,14 @@ mod tests {
 
     #[test]
     fn test_is_idle_utf8() {
-        const HELLO: &str = "héllo";
-        const HELLO_PARTS: (&[u8], &[u8]) = HELLO.as_bytes().split_at(2);
-        const PARTS: &[(&[u8], bool)] =
-            &[(b"", true), (HELLO_PARTS.0, false), (HELLO_PARTS.1, true)];
+        let hello: &str = "héllo";
+        let hello_parts: (&[u8], &[u8]) = hello.as_bytes().split_at(2);
+        let parts: &[(&[u8], bool)] = &[(b"", true), (hello_parts.0, false), (hello_parts.1, true)];
 
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
 
-        for (part, expected_is_idle) in PARTS {
+        for (part, expected_is_idle) in parts {
             parser.advance(&mut dispatcher, part);
             assert_eq!(parser.is_idle(), *expected_is_idle);
         }
