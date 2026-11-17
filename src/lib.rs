@@ -166,6 +166,15 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         i
     }
 
+    /// Whether the parser is currently not parsing any special sequences.
+    ///
+    /// This is `true` when the parser is not currently in any escape sequence,
+    /// nor is the parser currently in the middle of a UTF-8 sequence.
+    #[inline]
+    pub fn is_idle(&self) -> bool {
+        self.state == State::Ground && self.partial_utf8_len == 0
+    }
+
     #[inline(always)]
     fn change_state<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match self.state {
@@ -1084,8 +1093,8 @@ mod tests {
     fn parse_csi_params_ignore_long_params() {
         // This will build a list of repeating '1;'s
         // The length is MAX_PARAMS because the last semicolon is interpreted
-        // as an implicit zero, making the total number of parameters MAX_PARAMS
-        // + 1
+        // as an implicit zero, making the total number of parameters
+        // MAX_PARAMS + 1
         let params = "1;".repeat(params::MAX_PARAMS);
         let input = format!("\x1b[{}p", &params[..]).into_bytes();
 
@@ -1548,5 +1557,59 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 2);
         assert_eq!(dispatcher.dispatched[0], Sequence::Execute(0x18));
         assert_eq!(dispatcher.dispatched[1], Sequence::Execute(0x1A));
+    }
+
+    #[test]
+    fn test_is_idle_base() {
+        const INPUT: &[u8] = b"";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        parser.advance(&mut dispatcher, INPUT);
+        assert!(parser.is_idle());
+    }
+
+    #[test]
+    fn test_is_idle_plain() {
+        const INPUT: &[u8] = b"hello world";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        parser.advance(&mut dispatcher, INPUT);
+        assert!(parser.is_idle());
+    }
+
+    #[test]
+    fn test_is_idle_utf8() {
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        parser.advance(&mut dispatcher, b"h");
+        assert_eq!(parser.is_idle(), true);
+        parser.advance(&mut dispatcher, &"é".as_bytes()[0..1]);
+        assert_eq!(parser.is_idle(), false);
+        parser.advance(&mut dispatcher, &"é".as_bytes()[1..2]);
+        assert_eq!(parser.is_idle(), true);
+    }
+
+    #[test]
+    fn test_is_idle_osc() {
+        const PARTS: &[(&[u8], bool)] = &[
+            (b"", true),
+            (b"\x1b]0;ti", false),
+            (b"tle", false),
+            (b"\x07", true),
+            (b"data", true),
+        ];
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+
+        for (part, expected_is_idle) in PARTS {
+            parser.advance(&mut dispatcher, part);
+            assert_eq!(parser.is_idle(), *expected_is_idle);
+        }
     }
 }
