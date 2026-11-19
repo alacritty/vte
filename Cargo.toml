@@ -11,7 +11,7 @@ license = "Apache-2.0 OR MIT"
 version = "0.15.0"
 name = "vte"
 edition = "2021"
-rust-version = "1.62.1"
+rust-version = "1.88.0"
 include = ["README.md", "LICENSE-APACHE", "LICENSE-MIT", "Cargo.toml", "src/**/*.rs"]
 
 [features]
