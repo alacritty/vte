@@ -1366,7 +1366,7 @@ where
 
             // Set color index.
             b"4" => {
-                if params.len() <= 1 || params.len() % 2 == 0 {
+                if params.len() <= 1 || params.len().is_multiple_of(2) {
                     unhandled(params);
                     return;
                 }

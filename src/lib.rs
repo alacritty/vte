@@ -1587,11 +1587,11 @@ mod tests {
         let mut parser = Parser::new();
 
         parser.advance(&mut dispatcher, b"h");
-        assert_eq!(parser.is_idle(), true);
+        assert!(parser.is_idle());
         parser.advance(&mut dispatcher, &"é".as_bytes()[0..1]);
-        assert_eq!(parser.is_idle(), false);
+        assert!(!parser.is_idle());
         parser.advance(&mut dispatcher, &"é".as_bytes()[1..2]);
-        assert_eq!(parser.is_idle(), true);
+        assert!(parser.is_idle());
     }
 
     #[test]
