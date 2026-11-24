@@ -1625,50 +1625,52 @@ mod tests {
     }
 
     #[test]
-    fn partial_utf8_split_matches_whole() {
+    fn partial_utf8_split() {
         // "źdźbło"
         const INPUT: &[u8] = b"\xC5\xBAd\xC5\xBAb\xC5\x82o";
 
-        let mut whole = Dispatcher::default();
-        Parser::new().advance(&mut whole, INPUT);
-
-        println!("---");
-
-        let mut split = Dispatcher::default();
+        let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
-        parser.advance(&mut split, &INPUT[..1]);
-        parser.advance(&mut split, &INPUT[1..]);
+        for b in INPUT {
+            parser.advance(&mut dispatcher, &[*b]);
+        }
 
-        assert_eq!(split.dispatched, whole.dispatched);
+        assert_eq!(dispatcher.dispatched.len(), 6);
+        assert_eq!(dispatcher.dispatched[0], Sequence::Print('ź'));
+        assert_eq!(dispatcher.dispatched[1], Sequence::Print('d'));
+        assert_eq!(dispatcher.dispatched[2], Sequence::Print('ź'));
+        assert_eq!(dispatcher.dispatched[3], Sequence::Print('b'));
+        assert_eq!(dispatcher.dispatched[4], Sequence::Print('ł'));
+        assert_eq!(dispatcher.dispatched[5], Sequence::Print('o'));
     }
 
     #[test]
-    fn partial_utf8_c1_split_matches_whole() {
+    fn partial_utf8_c1_split() {
         const INPUT: &[u8] = b"\xC2\x8D";
 
-        let mut whole = Dispatcher::default();
-        Parser::new().advance(&mut whole, INPUT);
-
-        let mut split = Dispatcher::default();
+        let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
-        parser.advance(&mut split, &INPUT[..1]);
-        parser.advance(&mut split, &INPUT[1..]);
+        for b in INPUT {
+            parser.advance(&mut dispatcher, &[*b]);
+        }
 
-        assert_eq!(split.dispatched, whole.dispatched);
+        assert_eq!(dispatcher.dispatched.len(), 1);
+        assert_eq!(dispatcher.dispatched[0], Sequence::Execute(b'\x8D'));
     }
 
     #[test]
-    fn c1_between_partial_utf8s() {
+    fn partial_utf8_c1_sandwich() {
         const INPUT: &[u8] = b"\xC2\x8D\xC2a";
 
-        let mut whole = Dispatcher::default();
-        Parser::new().advance(&mut whole, INPUT);
-
-        let mut split = Dispatcher::default();
+        let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
-        parser.advance(&mut split, &INPUT[..1]);
-        parser.advance(&mut split, &INPUT[1..]);
+        for b in INPUT {
+            parser.advance(&mut dispatcher, &[*b]);
+        }
 
-        assert_eq!(split.dispatched, whole.dispatched);
+        assert_eq!(dispatcher.dispatched.len(), 3);
+        assert_eq!(dispatcher.dispatched[0], Sequence::Execute(b'\x8D'));
+        assert_eq!(dispatcher.dispatched[1], Sequence::Print('�'));
+        assert_eq!(dispatcher.dispatched[2], Sequence::Print('a'));
     }
 }
