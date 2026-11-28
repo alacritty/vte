@@ -5,6 +5,7 @@ CHANGELOG
 
 - Added `Parser::is_idle` to check whether the parser is neither in an escape,
     nor a UTF-8 sequence
+- Fix parsing of UTF-8 graphemes split across `Parser::advance` calls
 
 ## 0.15.0
 

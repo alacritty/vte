@@ -688,16 +688,31 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         self.partial_utf8[old_bytes..old_bytes + to_copy].copy_from_slice(&bytes[..to_copy]);
         self.partial_utf8_len += to_copy;
 
+        // Helper to dispatch the first char in a string.
+        let mut dispatch_char = |s: &str| {
+            // We only take the first character since we cannot process state
+            // changes here. We know the following characters are part of
+            // `bytes`, since the previous `partial_utf8` buffer contained no
+            // complete utf8 charater.
+            let c = unsafe { s.chars().next().unwrap_unchecked() };
+
+            // UTF8 overlaps with C1 escapes, so we need to handle them here.
+            if c <= '\u{9F}' {
+                performer.execute(c as u8);
+            } else {
+                performer.print(c);
+            }
+
+            c.len_utf8()
+        };
+
         // Parse the unicode character.
         match str::from_utf8(&self.partial_utf8[..self.partial_utf8_len]) {
             // If the entire buffer is valid, use the first character and
             // continue parsing.
             Ok(parsed) => {
-                let c = unsafe { parsed.chars().next().unwrap_unchecked() };
-                performer.print(c);
-
                 self.partial_utf8_len = 0;
-                c.len_utf8() - old_bytes
+                dispatch_char(parsed) - old_bytes
             },
             Err(err) => {
                 let valid_bytes = err.valid_up_to();
@@ -705,15 +720,11 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 // another utf8 character into `partial_utf8`. Since we only
                 // care about the first character, we just ignore the rest.
                 if valid_bytes > 0 {
-                    let c = unsafe {
-                        let parsed = str::from_utf8_unchecked(&self.partial_utf8[..valid_bytes]);
-                        parsed.chars().next().unwrap_unchecked()
-                    };
-
-                    performer.print(c);
+                    let parsed =
+                        unsafe { str::from_utf8_unchecked(&self.partial_utf8[..valid_bytes]) };
 
                     self.partial_utf8_len = 0;
-                    return valid_bytes - old_bytes;
+                    return dispatch_char(parsed) - old_bytes;
                 }
 
                 match err.error_len() {
@@ -1611,5 +1622,55 @@ mod tests {
             parser.advance(&mut dispatcher, part);
             assert_eq!(parser.is_idle(), *expected_is_idle);
         }
+    }
+
+    #[test]
+    fn partial_utf8_split() {
+        // "źdźbło"
+        const INPUT: &[u8] = b"\xC5\xBAd\xC5\xBAb\xC5\x82o";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+        for b in INPUT {
+            parser.advance(&mut dispatcher, &[*b]);
+        }
+
+        assert_eq!(dispatcher.dispatched.len(), 6);
+        assert_eq!(dispatcher.dispatched[0], Sequence::Print('ź'));
+        assert_eq!(dispatcher.dispatched[1], Sequence::Print('d'));
+        assert_eq!(dispatcher.dispatched[2], Sequence::Print('ź'));
+        assert_eq!(dispatcher.dispatched[3], Sequence::Print('b'));
+        assert_eq!(dispatcher.dispatched[4], Sequence::Print('ł'));
+        assert_eq!(dispatcher.dispatched[5], Sequence::Print('o'));
+    }
+
+    #[test]
+    fn partial_utf8_c1_split() {
+        const INPUT: &[u8] = b"\xC2\x8D";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+        for b in INPUT {
+            parser.advance(&mut dispatcher, &[*b]);
+        }
+
+        assert_eq!(dispatcher.dispatched.len(), 1);
+        assert_eq!(dispatcher.dispatched[0], Sequence::Execute(b'\x8D'));
+    }
+
+    #[test]
+    fn partial_utf8_c1_sandwich() {
+        const INPUT: &[u8] = b"\xC2\x8D\xC2a";
+
+        let mut dispatcher = Dispatcher::default();
+        let mut parser = Parser::new();
+        for b in INPUT {
+            parser.advance(&mut dispatcher, &[*b]);
+        }
+
+        assert_eq!(dispatcher.dispatched.len(), 3);
+        assert_eq!(dispatcher.dispatched[0], Sequence::Execute(b'\x8D'));
+        assert_eq!(dispatcher.dispatched[1], Sequence::Print('�'));
+        assert_eq!(dispatcher.dispatched[2], Sequence::Print('a'));
     }
 }
